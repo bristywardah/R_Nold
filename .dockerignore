@@ -1,0 +1,41 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.sqlite3
+
+# Virtualenv
+venv/
+.env/
+*.env
+
+# Logs
+*.log
+logs/
+celerybeat-schedule
+celerybeat.pid
+
+# Static & media (already handled by collectstatic)
+staticfiles/
+media/
+
+# IDE / Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Git / Docker
+.git/
+.gitignore
+.dockerignore
+docker-compose.override.yml
+
+# Tests
+.coverage
+htmlcov/
+pytest_cache/
+.tox/
+.mypy_cache/
+.pytest_cache/

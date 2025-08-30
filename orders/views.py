@@ -303,6 +303,8 @@ class ShippingAddressViewSet(viewsets.ModelViewSet):
     serializer_class = ShippingAddressSerializer
 
     def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False) or not self.request.user.is_authenticated:
+            return ShippingAddress.objects.none()
         return ShippingAddress.objects.filter(user=self.request.user)
 
     def perform_create(self, serializer):
@@ -324,6 +326,8 @@ class CartViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False) or not self.request.user.is_authenticated:
+            return CartItem.objects.none()
         return CartItem.objects.filter(user=self.request.user).select_related("product")
 
     def create(self, request, *args, **kwargs):

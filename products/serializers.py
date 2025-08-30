@@ -125,6 +125,7 @@ class ProductSerializer(serializers.ModelSerializer):
             "id", "vendor", "vendor_id", "slug", "status", "featured",
             "created_at", "updated_at", "is_active", "is_approve",
         ]
+        ref_name = "ProductsProductSerializer"
 
     def get_vendor_details(self, obj):
         from users.serializers import UserSerializer

@@ -11,8 +11,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from users.models import User
-from .models import Message, Chat
-from .serializers import MessageSerializer, ChatUserSerializer
+from chatapp.models import Message, Chat
+from chatapp.serializers import MessageSerializer, ChatUserSerializer
 
 
 class MessageSendAPIView(APIView):
@@ -47,6 +47,8 @@ class ChatMessagesListView(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False) or not self.request.user.is_authenticated:
+            return Message.objects.none()
         user_id = self.kwargs.get('pk')
         get_object_or_404(User, pk=user_id)
         return Message.objects.filter(

@@ -24,10 +24,9 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.pagination import PageNumberPagination
 from django.db.models import Q
 import logging
-from common.models import Banner
-from common.serializers import BannerSerializer
+from common.models import Banner, Wishlist
+from common.serializers import BannerSerializer, WishlistSerializer
 from common.permissions import IsAdminOrReadOnly
-
 
 
 logger = logging.getLogger(__name__)
@@ -171,6 +170,8 @@ class SavedProductViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated, IsOwnerOrReadOnly]
 
     def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False) or not self.request.user.is_authenticated:
+            return SavedProduct.objects.none()
         return SavedProduct.objects.filter(vendor=self.request.user)
 
     def perform_create(self, serializer):
@@ -180,6 +181,8 @@ class SavedProductViewSet(viewsets.ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         return super().create(request, *args, **kwargs)
+
+
 
 
 # -------------------
@@ -232,6 +235,8 @@ class StandardResultsSetPagination(PageNumberPagination):
 
 
 
+
+
 class OrderManagementViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = OrderListSerializer
@@ -247,11 +252,12 @@ class OrderManagementViewSet(viewsets.ReadOnlyModelViewSet):
     ]
     filterset_fields = ['payment_status', 'order_status']
 
-
     def get_queryset(self):
         user = self.request.user
+        if getattr(self, 'swagger_fake_view', False) or not user.is_authenticated:
+            return Order.objects.none()
 
-        print("role", user.role)
+        print("role", getattr(user, "role", None))
 
         # Admin sees all orders
         if getattr(user, 'role', None) == UserRole.ADMIN.value or getattr(user, 'is_staff', False):
@@ -281,22 +287,6 @@ class OrderManagementViewSet(viewsets.ReadOnlyModelViewSet):
 
         return queryset.order_by('-order_date')
 
-
-        # Date range filter
-        start_date = self.request.query_params.get('start_date')
-        end_date = self.request.query_params.get('end_date')
-        if start_date and end_date:
-            queryset = queryset.filter(order_date__date__range=[start_date, end_date])
-
-        # Payment status filter
-        payment_status = self.request.query_params.get('payment_status')
-        if payment_status:
-            if payment_status.lower() == 'none':
-                queryset = queryset.filter(payment_status__isnull=True)
-            elif payment_status.lower() != 'all':
-                queryset = queryset.filter(payment_status__iexact=payment_status)
-
-        return queryset.order_by('-order_date')
 
 
 
@@ -328,3 +318,21 @@ class BannerViewSet(viewsets.ModelViewSet):
 
     def perform_update(self, serializer):
         serializer.save()
+
+
+
+
+
+class WishlistViewSet(viewsets.ModelViewSet):
+    serializer_class = WishlistSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False) or not self.request.user.is_authenticated:
+            return Wishlist.objects.none()
+        return Wishlist.objects.filter(user=self.request.user)
+
+    def perform_create(self, serializer):
+        if getattr(self.request.user, "role", None) != "customer":
+            raise PermissionDenied("Only customers can add to wishlist.")
+        serializer.save(user=self.request.user)

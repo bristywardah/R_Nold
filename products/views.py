@@ -287,6 +287,8 @@ class TopSellProductViewSet(viewsets.ReadOnlyModelViewSet):
     pagination_class = StandardResultsSetPagination
 
     def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False) or not self.request.user.is_authenticated:
+            return Product.objects.none()
         user = self.request.user
 
         delivered_items = OrderItem.objects.filter(
@@ -352,6 +354,10 @@ class PromotionViewSet(viewsets.ModelViewSet):
     ordering = ['-start_datetime']
 
     def get_queryset(self):
+
+        if getattr(self, 'swagger_fake_view', False) or not self.request.user.is_authenticated:
+            return Promotion.objects.none()
+        
         user = self.request.user
 
         if user.role == UserRole.ADMIN.value:
@@ -404,6 +410,8 @@ class VendorProductList(viewsets.ModelViewSet):
     ordering_fields = ['status']
 
     def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False) or not self.request.user.is_authenticated:
+            return Product.objects.none()
         user = self.request.user
         base_qs = Product.objects.select_related("seo").prefetch_related("categories", "tags", "images")
 
@@ -481,7 +489,7 @@ class ReturnProductViewSet(viewsets.ModelViewSet):
 
 
 
-            
+
 
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):

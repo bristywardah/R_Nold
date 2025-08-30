@@ -6,8 +6,8 @@ from users.serializers import UserPublicSerializer
 from orders.models import Order, OrderItem, ShippingAddress
 from common.models import ImageUpload
 from common.models import ReviewImage
-from common.models import Banner
-
+from common.models import Banner, Wishlist
+from products.serializers import ProductSerializer
 
 class ImageUploadSerializer(serializers.ModelSerializer):
     class Meta:
@@ -64,42 +64,44 @@ class SEOSerializer(serializers.ModelSerializer):
         fields = ['id', 'title', 'meta_description']
 
 
-# -------------------
-# Product
-# -------------------
-class ProductSerializer(serializers.ModelSerializer):
-    vendor = UserPublicSerializer(read_only=True)
-    category = CategorySerializer(read_only=True)
-    category_id = serializers.PrimaryKeyRelatedField(
-        queryset=Category.objects.all(), source='category', write_only=True
-    )
-    tags = TagSerializer(many=True, read_only=True)
-    tag_ids = serializers.PrimaryKeyRelatedField(
-        queryset=Tag.objects.all(), many=True, source='tags', write_only=True
-    )
+# # -------------------
+# # Product
+# # -------------------
+# class ProductSerializer(serializers.ModelSerializer):
+#     vendor = UserPublicSerializer(read_only=True)
+#     category = CategorySerializer(read_only=True)
+#     category_id = serializers.PrimaryKeyRelatedField(
+#         queryset=Category.objects.all(), source='category', write_only=True
+#     )
+#     tags = TagSerializer(many=True, read_only=True)
+#     tag_ids = serializers.PrimaryKeyRelatedField(
+#         queryset=Tag.objects.all(), many=True, source='tags', write_only=True
+#     )
 
-    class Meta:
-        model = Product
-        fields = [
-            'id', 'vendor', 'name', 'description', 'price',
-            'is_stock', 'stock_quantity', 'category', 'category_id',
-            'tags', 'tag_ids', 'created_at', 'updated_at'
-        ]
-        read_only_fields = ['id', 'vendor', 'created_at', 'updated_at']
+#     class Meta:
+#         model = Product
+#         fields = [
+#             'id', 'vendor', 'name', 'description', 'price',
+#             'is_stock', 'stock_quantity', 'category', 'category_id',
+#             'tags', 'tag_ids', 'created_at', 'updated_at'
+#         ]
+#         read_only_fields = ['id', 'vendor', 'created_at', 'updated_at']
+#         ref_name = "CommonProductsSerializer"
 
-    def create(self, validated_data):
-        tags = validated_data.pop('tags', [])
-        validated_data['vendor'] = self.context['request'].user
-        product = super().create(validated_data)
-        product.tags.set(tags)
-        return product
 
-    def update(self, instance, validated_data):
-        tags = validated_data.pop('tags', None)
-        instance = super().update(instance, validated_data)
-        if tags is not None:
-            instance.tags.set(tags)
-        return instance
+#     def create(self, validated_data):
+#         tags = validated_data.pop('tags', [])
+#         validated_data['vendor'] = self.context['request'].user
+#         product = super().create(validated_data)
+#         product.tags.set(tags)
+#         return product
+
+#     def update(self, instance, validated_data):
+#         tags = validated_data.pop('tags', None)
+#         instance = super().update(instance, validated_data)
+#         if tags is not None:
+#             instance.tags.set(tags)
+#         return instance
 
 
 # -------------------
@@ -115,6 +117,8 @@ class SavedProductSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'vendor', 'created_at', 'updated_at']
+        ref_name = "SavedProductsSerializer"
+
 
     def create(self, validated_data):
         validated_data['vendor'] = self.context['request'].user
@@ -131,6 +135,8 @@ class ReviewImageSerializer(serializers.ModelSerializer):
         model = ReviewImage
         fields = ['id', 'image', 'alt_text', 'uploaded_at']
         read_only_fields = ['id', 'uploaded_at']
+        ref_name = "ReviewImageSerializer"
+
 
 
 class ReviewSerializer(serializers.ModelSerializer):
@@ -146,6 +152,8 @@ class ReviewSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'user', 'created_at', 'updated_at']
+        ref_name = "ReviewSerializer"
+
 
     def validate_rating(self, value):
         if not (1 <= value <= 5):
@@ -235,8 +243,33 @@ class BannerSerializer(serializers.ModelSerializer):
             'position', 'alt_text', 'link', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+        ref_name = "BannerSerializer"
+
 
     def validate_image(self, value):
         if not value:
             raise serializers.ValidationError("Image is required.")
         return value
+
+
+
+
+
+
+
+class WishlistSerializer(serializers.ModelSerializer):
+    user = UserPublicSerializer(read_only=True)
+    product = ProductSerializer(read_only=True)
+    product_id = serializers.PrimaryKeyRelatedField(
+        queryset=Product.objects.all(), source='product', write_only=True
+    )
+
+    class Meta:
+        model = Wishlist
+        fields = ['id', 'user', 'product', 'product_id', 'added_at']
+        read_only_fields = ['id', 'user', 'product', 'added_at']
+        ref_name = "WishlistSerializer"
+
+    def create(self, validated_data):
+        validated_data['user'] = self.context['request'].user
+        return super().create(validated_data)

@@ -215,24 +215,6 @@ class ForgotPasswordConfirmView(generics.GenericAPIView):
         return Response({"message": "Password reset successful."})
 
 
-# ----------------------
-# User Management (Admin)
-# ----------------------
-
-# class UserViewSet(viewsets.ReadOnlyModelViewSet):
-#     queryset = User.objects.all()
-#     serializer_class = UserSerializer
-#     permission_classes = [permissions.IsAdminUser]
-#     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
-#     search_fields = ['email', 'first_name', 'last_name']
-#     ordering_fields = ['email', 'first_name', 'last_name', 'role']
-
-#     def get_queryset(self):
-#         queryset = super().get_queryset()
-#         role = self.request.query_params.get('role')
-#         if role in ['vendor', 'customer', 'admin']:
-#             queryset = queryset.filter(role=role)
-#         return queryset
 
 
 class UserViewSet(viewsets.ModelViewSet):

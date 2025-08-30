@@ -182,3 +182,24 @@ class Banner(BaseModel):
 
     def __str__(self):
         return f"Banner {self.pk} - {self.alt_text or 'No Alt Text'}"
+
+
+
+
+
+
+
+
+
+class Wishlist(BaseModel):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="wishlists")
+    product = models.ForeignKey("products.Product", on_delete=models.CASCADE, related_name="wishlisted_by")
+    added_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("user", "product")
+        ordering = ["-added_at"]
+        indexes = [models.Index(fields=["user", "product"])]
+
+    def __str__(self):
+        return f"{self.user.email} - {self.product.name}"

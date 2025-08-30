@@ -36,7 +36,7 @@ from common.views import (
     ReviewViewSet,
     OrderManagementViewSet,
     BannerViewSet,
-)
+    WishlistViewSet,)
 
 # Dashboard
 from dashboard.views import (
@@ -126,6 +126,7 @@ router.register("checkout", CheckoutViewSet, basename="checkout")
 # Dashboard / Payouts
 router.register("payouts", PayoutRequestViewSet, basename="payout")
 
+router.register('wishlist', WishlistViewSet, basename='wishlist')
 
 
 router.register("admin/vendor-performance", VendorPerformanceViewSet, basename="vendor-performance")

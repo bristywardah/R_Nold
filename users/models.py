@@ -48,6 +48,9 @@ class UserManager(BaseUserManager):
         return self._create_user(email, password, **extra_fields)
 
 
+
+
+
 class User(AbstractBaseUser, PermissionsMixin, BaseModel):
     email = models.EmailField(unique=True)
     profile_image = models.ImageField(upload_to="profiles/", blank=True, null=True)
@@ -72,6 +75,8 @@ class User(AbstractBaseUser, PermissionsMixin, BaseModel):
     role = models.CharField(max_length=20, choices=UserRole.choices(), default=UserRole.CUSTOMER.value)
     agree_to_terms = models.BooleanField(default=False)
 
+    is_online = models.BooleanField(default=False)
+
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     otp_code = models.CharField(max_length=6, blank=True, null=True)
@@ -93,6 +98,9 @@ class User(AbstractBaseUser, PermissionsMixin, BaseModel):
     def __str__(self):
         full_name = f"{self.first_name} {self.last_name}".strip()
         return full_name if full_name else self.email
+
+
+
 
 
 class SellerOwnerImage(BaseModel):

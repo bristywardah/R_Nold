@@ -18,10 +18,17 @@ def upload_to(instance, filename):
     return os.path.join("uploads/common/", filename)
 
 
-class ImageUpload(models.Model):
+class ImageUpload(BaseModel):
     image = models.ImageField(upload_to=upload_to)
     alt_text = models.CharField(max_length=255, blank=True, help_text="Optional alt text for SEO/accessibility")
     uploaded_at = models.DateTimeField(auto_now_add=True)
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="uploaded_images"
+    )
 
     class Meta:
         ordering = ["-uploaded_at"]

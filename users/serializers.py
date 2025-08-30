@@ -7,8 +7,13 @@ import random, string
 from payments.models import Payment
 from orders.models import Order
 from products.models import Product
-from django.db.models import Count, Avg
+from django.db.models import Count, Avg, Sum
 from common.models import Review
+
+
+
+
+
 
 # --------------------------
 # USER SERIALIZERS
@@ -24,24 +29,27 @@ class UserSerializer(serializers.ModelSerializer):
     gender = serializers.CharField(allow_null=True, required=False)
     date_of_birth = serializers.DateField(allow_null=True, required=False)
     national_id = serializers.CharField(allow_null=True, required=False)
+    is_online = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = User
         fields = [
             'id', 'email', 'first_name', 'last_name', 'profile_image', 'cover_image',
             'phone_number', 'secondary_number', 'emergency_contact', 'address', 'gender',
-            'date_of_birth', 'national_id', 'role'
+            'date_of_birth', 'national_id', 'role', 'is_online'
         ]
 
 
 
 
-        
+
+
+
 
 class UserSignupSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(write_only=True)
     agree_to_terms = serializers.BooleanField(write_only=True)
-    role = serializers.CharField(read_only=True, default='customer')  
+    role = serializers.CharField(read_only=True, default='customer')
 
     class Meta:
         model = User
@@ -65,7 +73,7 @@ class UserSignupSerializer(serializers.ModelSerializer):
             email=validated_data['email'],
             first_name=first_name,
             last_name=last_name,
-            role='customer' 
+            role='customer'
         )
         user.set_password(password)
         user.save()
@@ -118,7 +126,6 @@ class UserPublicSerializer(serializers.ModelSerializer):
         if obj.profile_image and hasattr(obj.profile_image, 'url'):
             return request.build_absolute_uri(obj.profile_image.url) if request else obj.profile_image.url
         return None
-
 
 
 # --------------------------
@@ -220,21 +227,35 @@ class SellerApplicationAdminUpdateSerializer(serializers.ModelSerializer):
         instance.updated_at = timezone.now()
         instance.save()
         return instance
-    
+
+
+
+
+
+
+# --------------------------
+# CUSTOMER LIST SERIALIZER
+# --------------------------
 
 class CustomerListSerializer(serializers.ModelSerializer):
     user_id = serializers.SerializerMethodField()
     customer_name = serializers.SerializerMethodField()
+    customer_email = serializers.SerializerMethodField()
     payment_status = serializers.SerializerMethodField()
     signup_date = serializers.DateTimeField(source="created_at", format="%Y-%m-%d")
     last_activity = serializers.DateTimeField(source="last_login", format="%Y-%m-%d %H:%M", allow_null=True)
     actions = serializers.SerializerMethodField()
+    total_orders = serializers.SerializerMethodField()
+    total_spend = serializers.SerializerMethodField()
+    is_active = serializers.BooleanField()
 
     class Meta:
         model = User
         fields = [
-            "user_id", "customer_name", "payment_status",
-            "signup_date", "last_activity", "actions"
+            "id",
+            "user_id", "customer_name", "customer_email", "payment_status",
+            "signup_date", "last_activity", "actions",
+            "total_orders", "total_spend", "is_active",
         ]
 
     def get_user_id(self, obj):
@@ -243,7 +264,11 @@ class CustomerListSerializer(serializers.ModelSerializer):
     def get_customer_name(self, obj):
         return f"{obj.first_name} {obj.last_name}".strip()
 
+    def get_customer_email(self, obj):
+        return obj.email
+
     def get_payment_status(self, obj):
+        from payments.models import Payment
         last_payment = Payment.objects.filter(customer=obj).order_by("-created_at").first()
         return last_payment.status if last_payment else "N/A"
 
@@ -253,7 +278,44 @@ class CustomerListSerializer(serializers.ModelSerializer):
             "delete_url": f"/admin/customers/{obj.id}/delete"
         }
 
+    def get_total_orders(self, obj):
+        from orders.models import Order
+        return Order.objects.filter(customer=obj).count()
 
+    def get_total_spend(self, obj):
+        from orders.models import Order
+        total = Order.objects.filter(customer=obj).aggregate(total=Sum("total_amount"))["total"]
+        return total or 0
+
+
+
+
+
+
+
+
+
+
+# --------------------------
+# CUSTOMER DETAIL SERIALIZER
+# --------------------------
+
+class CustomerDetailSerializer(UserSerializer):
+    orders = serializers.SerializerMethodField()
+
+    class Meta(UserSerializer.Meta):
+        fields = UserSerializer.Meta.fields + ["orders"]
+
+    def get_orders(self, obj):
+        # Lazy import to avoid circular import
+        from orders.serializers import OrderReceiptSerializer
+        orders = Order.objects.filter(customer=obj).order_by("-created_at")
+        return OrderReceiptSerializer(orders, many=True).data
+
+
+# --------------------------
+# VENDOR LIST SERIALIZER
+# --------------------------
 
 class VendorListSerializer(serializers.ModelSerializer):
     user_id = serializers.SerializerMethodField()

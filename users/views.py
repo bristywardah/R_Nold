@@ -17,7 +17,8 @@ from users.serializers import (
     UserLoginSerializer,
     SellerApplicationSerializer,
     VendorListSerializer,
-    CustomerListSerializer
+    CustomerListSerializer,
+    CustomerDetailSerializer
 )
 from users.models import User, SellerApplication
 from users.enums import SellerApplicationStatus
@@ -218,32 +219,48 @@ class ForgotPasswordConfirmView(generics.GenericAPIView):
 # User Management (Admin)
 # ----------------------
 
-class UserViewSet(viewsets.ReadOnlyModelViewSet):
+# class UserViewSet(viewsets.ReadOnlyModelViewSet):
+#     queryset = User.objects.all()
+#     serializer_class = UserSerializer
+#     permission_classes = [permissions.IsAdminUser]
+#     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+#     search_fields = ['email', 'first_name', 'last_name']
+#     ordering_fields = ['email', 'first_name', 'last_name', 'role']
+
+#     def get_queryset(self):
+#         queryset = super().get_queryset()
+#         role = self.request.query_params.get('role')
+#         if role in ['vendor', 'customer', 'admin']:
+#             queryset = queryset.filter(role=role)
+#         return queryset
+
+
+class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
     serializer_class = UserSerializer
     permission_classes = [permissions.IsAdminUser]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['email', 'first_name', 'last_name']
     ordering_fields = ['email', 'first_name', 'last_name', 'role']
-
-    def get_queryset(self):
-        queryset = super().get_queryset()
-        role = self.request.query_params.get('role')
-        if role in ['vendor', 'customer', 'admin']:
-            queryset = queryset.filter(role=role)
-        return queryset
+    ordering = ['email']
+    lookup_field = 'id' 
 
 
 
 class CustomerListViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = User.objects.filter(role=UserRole.CUSTOMER.value).order_by("-created_at")
-    serializer_class = CustomerListSerializer
     permission_classes = [permissions.IsAdminUser]
-
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     search_fields = ["first_name", "last_name", "email"]
     filterset_fields = ["role"]
     ordering_fields = ["created_at", "last_login"]
+
+    def get_serializer_class(self):
+        if self.action == "retrieve":
+            return CustomerDetailSerializer
+        return CustomerListSerializer
+
+
 
 
 class VendorListViewSet(viewsets.ReadOnlyModelViewSet):
@@ -252,6 +269,5 @@ class VendorListViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [permissions.IsAdminUser]
 
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    search_fields = ["first_name", "last_name", "email"]
+    ordering_fields = ['email', 'first_name', 'last_name', 'role',"created_at"]
     filterset_fields = ["role"]
-    ordering_fields = ["created_at"]

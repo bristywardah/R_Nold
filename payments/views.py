@@ -12,18 +12,16 @@ from orders.models import Order
 from users.models import User
 from orders.enums import OrderStatus
 from payments.models import Payment
+from notification.utils import notify_order_payment_completed, notify_order_payment_cancelled
 
 logger = logging.getLogger(__name__)
 stripe.api_key = settings.STRIPE_SECRET_KEY
 
 
-
-
-
-
-
+# ------------------------
+# CHECKOUT SESSION
+# ------------------------
 class CheckoutViewSet(viewsets.ViewSet):
-    """Stripe checkout for existing orders (cart or single product)."""
     permission_classes = [permissions.IsAuthenticated]
 
     @action(detail=False, methods=['post'], url_path='checkout')
@@ -34,23 +32,12 @@ class CheckoutViewSet(viewsets.ViewSet):
 
         order = get_object_or_404(Order, order_id=order_id, customer=request.user)
         return self.create_stripe_session(order, request.user)
-    
 
-
-
-            
     def create_stripe_session(self, order, user):
-        """Create Stripe checkout session for a given order."""
         line_items = []
         items_data = []
 
-        for item in order.items.all():  # related_name 'items'
-            if getattr(item.product, "status", None) != "approved":
-                return Response(
-                    {"error": f"Product '{item.product.name}' is not approved."},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            # Stripe line item
+        for item in order.items.all():
             line_items.append({
                 "price_data": {
                     "currency": "usd",
@@ -59,7 +46,6 @@ class CheckoutViewSet(viewsets.ViewSet):
                 },
                 "quantity": item.quantity,
             })
-            # Detailed item info for response
             items_data.append({
                 "id": item.id,
                 "product": {
@@ -92,18 +78,9 @@ class CheckoutViewSet(viewsets.ViewSet):
                 "billing_same_as_shipping": shipping_address.billing_same_as_shipping,
             })
 
-        # Fallback URLs if settings missing
-        frontend_success_base = getattr(
-            settings,
-            "FRONTEND_PAYMENT_SUCCESS_URL",
-            "http://localhost:5173/payments/success/"
-        )
-        frontend_cancel = getattr(
-            settings,
-            "FRONTEND_PAYMENT_CANCEL_URL",
-            "http://localhost:5173/payments/cancel/"
-        )
-
+        # Frontend URLs fallback
+        frontend_success_base = getattr(settings, "FRONTEND_PAYMENT_SUCCESS_URL", "http://localhost:5173/payments/success/")
+        frontend_cancel = getattr(settings, "FRONTEND_PAYMENT_CANCEL_URL", "http://localhost:5173/payments/cancel/")
         frontend_success = f"{frontend_success_base}?order_id={order.order_id}"
 
         try:
@@ -123,7 +100,7 @@ class CheckoutViewSet(viewsets.ViewSet):
 
             response_data = {
                 "checkout_url": session.url,
-                "order_id": order.order_id, 
+                "order_id": order.order_id,
                 "total_amount": str(order.total_amount),
                 "item_count": order.items.count(),
                 "items": items_data,
@@ -146,62 +123,141 @@ class CheckoutViewSet(viewsets.ViewSet):
             return Response({"error": "Failed to create checkout session"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-
-
+# ------------------------
+# STRIPE WEBHOOK
+# ------------------------
 class StripeWebhookView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def post(self, request, *args, **kwargs):
+        logger.info("Stripe webhook received")
         payload = request.body
         sig_header = request.META.get("HTTP_STRIPE_SIGNATURE")
         endpoint_secret = getattr(settings, "STRIPE_WEBHOOK_SECRET", "")
 
+        logger.debug(f"Payload: {payload}")
+        logger.debug(f"Stripe Signature Header: {sig_header}")
+
         try:
             event = stripe.Webhook.construct_event(payload, sig_header, endpoint_secret)
+            logger.info(f"Stripe event type: {event['type']}")
         except stripe.error.SignatureVerificationError:
+            logger.error("Invalid Stripe signature")
             return Response({"error": "Invalid signature"}, status=400)
         except Exception as e:
             logger.error(f"Stripe webhook error: {e}", exc_info=True)
             return Response({"error": "Webhook error"}, status=500)
 
-        if event["type"] == "checkout.session.completed":
-            session = event["data"]["object"]
-            metadata = session.get("metadata", {})
-            order_id = metadata.get("order_id")
-            customer_id = metadata.get("customer_id")
-            vendor_id = metadata.get("vendor_id")
+        event_type = event["type"]
+        session = event["data"]["object"]
 
-            if not order_id:
-                return Response({"error": "No order_id in metadata"}, status=400)
+        handlers = {
+            "checkout.session.completed": self.handle_checkout_completed,
+            "checkout.session.expired": self.handle_checkout_expired,
+            "payment_intent.payment_failed": self.handle_payment_failed,
+        }
 
-            try:
-                order = Order.objects.get(order_id=order_id)
-                customer = User.objects.get(id=customer_id)
-                vendor = User.objects.get(id=vendor_id)
-                amount = Decimal(session.get("amount_total", 0)) / 100
+        handler = handlers.get(event_type)
+        if handler:
+            logger.info(f"Calling handler for event: {event_type}")
+            return handler(session)
 
-                Payment.objects.update_or_create(
-                    order=order,
-                    defaults={
-                        "customer": customer,
-                        "vendor": vendor,
-                        "amount": amount,
-                        "payment_method": "stripe",
-                        "transaction_id": session.get("id"),
-                        "status": "completed",
-                    }
-                )
-
-                # Update order status
-                order.payment_status = OrderStatus.PAID.value
-                order.order_status = OrderStatus.PROCESSING.value
-                order.save(update_fields=["payment_status", "order_status"])
-
-                return Response({"status": "payment_processed"}, status=200)
-            except Order.DoesNotExist:
-                return Response({"error": "Order not found"}, status=404)
-            except Exception as e:
-                logger.error(f"Payment processing failed: {e}", exc_info=True)
-                return Response({"error": "Processing error"}, status=500)
-
+        logger.info(f"Unhandled Stripe event: {event_type}")
         return Response({"status": "event_not_handled"}, status=200)
+
+
+    # ------------------------
+    # HANDLERS
+    # ------------------------
+    def handle_checkout_completed(self, session):
+        metadata = session.get("metadata", {})
+        order_id = metadata.get("order_id")
+        customer_id = metadata.get("customer_id")
+        vendor_id = metadata.get("vendor_id")
+
+        if not order_id:
+            return Response({"error": "No order_id in metadata"}, status=400)
+
+        try:
+            order = Order.objects.get(order_id=order_id)
+            customer = User.objects.get(id=customer_id)
+            vendor = User.objects.get(id=vendor_id)
+            amount = Decimal(session.get("amount_total", 0)) / 100
+
+            Payment.objects.update_or_create(
+                order=order,
+                defaults={
+                    "customer": customer,
+                    "vendor": vendor,
+                    "amount": amount,
+                    "payment_method": "stripe",
+                    "transaction_id": session.get("id"),
+                    "status": "completed",
+                }
+            )
+
+            order.payment_status = OrderStatus.PAID.value
+            order.order_status = OrderStatus.PROCESSING.value
+            order.save(update_fields=["payment_status", "order_status"])
+
+            notify_order_payment_completed(order, sender=customer)
+
+            logger.info(f"Stripe payment completed for order {order_id}")
+            return Response({"status": "payment_processed"}, status=200)
+
+        except Order.DoesNotExist:
+            logger.error(f"Order {order_id} not found")
+            return Response({"error": "Order not found"}, status=404)
+        except Exception as e:
+            logger.error(f"Payment processing failed: {e}", exc_info=True)
+            return Response({"error": "Processing error"}, status=500)
+
+    def handle_checkout_expired(self, session):
+        metadata = session.get("metadata", {})
+        order_id = metadata.get("order_id")
+
+        if not order_id:
+            return Response({"error": "No order_id in metadata"}, status=400)
+
+        try:
+            order = Order.objects.get(order_id=order_id)
+            order.payment_status = OrderStatus.CANCELLED.value
+            order.order_status = OrderStatus.CANCELLED.value
+            order.save(update_fields=["payment_status", "order_status"])
+
+            notify_order_payment_cancelled(order, sender=order.customer)
+
+            logger.info(f"Stripe checkout expired/cancelled for order {order_id}")
+            return Response({"status": "payment_cancelled"}, status=200)
+
+        except Order.DoesNotExist:
+            logger.error(f"Order {order_id} not found")
+            return Response({"error": "Order not found"}, status=404)
+        except Exception as e:
+            logger.error(f"Payment cancellation failed: {e}", exc_info=True)
+            return Response({"error": "Processing error"}, status=500)
+
+    def handle_payment_failed(self, session):
+        metadata = session.get("metadata", {})
+        order_id = metadata.get("order_id")
+
+        if not order_id:
+            return Response({"error": "No order_id in metadata"}, status=400)
+
+        try:
+            order = Order.objects.get(order_id=order_id)
+            order.payment_status = OrderStatus.FAILED.value
+            order.order_status = OrderStatus.CANCELLED.value
+            order.save(update_fields=["payment_status", "order_status"])
+
+            notify_order_payment_cancelled(order, sender=order.customer)
+
+            logger.info(f"Stripe payment failed for order {order_id}")
+            return Response({"status": "payment_failed"}, status=200)
+
+        except Order.DoesNotExist:
+            logger.error(f"Order {order_id} not found")
+            return Response({"error": "Order not found"}, status=404)
+        except Exception as e:
+            logger.error(f"Payment failed handler error: {e}", exc_info=True)
+            return Response({"error": "Processing error"}, status=500)

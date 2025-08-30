@@ -24,6 +24,7 @@ from products.views import (
     TopSellProductViewSet,
     PromotionViewSet,
     VendorProductList,
+    DeliveredOrderItemViewSet
 )
 
 # Common
@@ -99,6 +100,10 @@ router.register("top-sell-products", TopSellProductViewSet, basename="top-sell-p
 router.register("promotions", PromotionViewSet, basename="promotion")
 router.register("vendor/products", VendorProductList, basename="vendor-products")
 router.register("returns/product", ReturnProductViewSet, basename="return-product")
+router.register("deliverd/item", DeliveredOrderItemViewSet, basename="deliverd-product")
+
+
+
 
 # Users
 router.register("seller/applications", SellerApplicationViewSet, basename="seller-application")

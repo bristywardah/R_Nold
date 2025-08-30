@@ -10,22 +10,42 @@ from users.models import BaseModel
 from products.enums import ProductStatus, DiscountType, ReturnStatus
 from django.db.models import Avg
 from django.utils import timezone
+from django.contrib.auth import get_user_model
 
 
-
-User = settings.AUTH_USER_MODEL
-
+UserModel = get_user_model()   
 
 
+# --- Sentinel helpers ---------------------------------------------------------
+def get_sentinel_vendor():
+    """
+    Return (or create) a special 'deleted vendor' user so that when a vendor
+    account is deleted, their products are reassigned instead of breaking FKs.
+    Make sure this user has role='vendor'.
+    """
+    # Adjust field names according to your custom User model:
+    defaults = {"email": "deleted-vendor@example.com"}
+    sentinel, _ = UserModel.objects.get_or_create(
+        email="deleted-vendor@example.com",
+        defaults={"role": "vendor", "is_active": False}
+    )
+
+    # Ensure role fits vendor
+    if hasattr(sentinel, "role") and getattr(sentinel, "role") != "vendor":
+        setattr(sentinel, "role", "vendor")
+        sentinel.is_active = False
+        sentinel.save(update_fields=["role", "is_active"])
+    return sentinel
 
 
-
+# ------------------------------------------------------------------------------
 class Product(BaseModel):
     vendor = models.ForeignKey(
-        User,
-        on_delete=models.CASCADE,
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET(get_sentinel_vendor),   
         related_name="products",
         limit_choices_to={"role": "vendor"},
+        
     )
 
     categories = models.ManyToManyField("common.Category", related_name="products", blank=True)
@@ -65,8 +85,6 @@ class Product(BaseModel):
     is_active = models.BooleanField(default=True, help_text="General availability toggle")
     is_approve = models.BooleanField(default=False)
 
-
-
     class Meta:
         ordering = ["-created_at"]
         indexes = [
@@ -83,10 +101,8 @@ class Product(BaseModel):
             raise ValidationError({"price1": "Primary price must be set."})
         if any(p is not None and p < Decimal('0.00') for p in [self.price1, self.price2, self.price3]):
             raise ValidationError("Prices must be non-negative.")
-
         if self.is_stock and (self.stock_quantity is None or self.stock_quantity < 0):
             raise ValidationError({"stock_quantity": "Stock quantity must be >= 0."})
-
         if (self.home_delivery or self.partner_delivery or self.pickup) and self.estimated_delivery_days is None:
             raise ValidationError({"estimated_delivery_days": "Set estimated_delivery_days when product supports delivery/pickup."})
 
@@ -120,14 +136,16 @@ class Product(BaseModel):
     @property
     def prod_id(self):
         return f"PROD-{1000 + self.id}"
+    
+    @property
+    def price(self):
+        return self.price1 
 
     def get_absolute_url(self):
         try:
             return reverse("products:detail", args=[self.slug])
         except Exception:
             return f"/products/{self.slug}/"
-
-
 
 
 class ProductImage(BaseModel):
@@ -187,7 +205,6 @@ class Promotion(BaseModel):
         if self.discount_type == DiscountType.PERCENTAGE:
             if self.discount_value < 0 or self.discount_value > 100:
                 raise ValidationError("Percentage discount must be between 0 and 100.")
-
         if self.end_datetime <= self.start_datetime:
             raise ValidationError("End date must be after start date.")
 
@@ -207,10 +224,8 @@ class Promotion(BaseModel):
             return "Expired"
         else:
             return "Active"
-        
 
 
-# models.py
 class ProductSpecifications(models.Model):
     product = models.OneToOneField(Product, on_delete=models.CASCADE, related_name="specifications")
 
@@ -225,8 +240,6 @@ class ProductSpecifications(models.Model):
 
     def __str__(self):
         return f"Specs of {self.product.name}"
-
-
 
 
 class ReturnProduct(BaseModel):
@@ -254,11 +267,16 @@ class ReturnProduct(BaseModel):
         default=ReturnStatus.PENDING,
     )
 
+    # <<< key change: keep return record even if user is deleted
     requested_by = models.ForeignKey(
-        User,
-        on_delete=models.CASCADE,
-        related_name="return_requests"
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="return_requests",
+        null=True,
+        blank=True,
     )
+    description = models.TextField(blank=True, null=True)
+
 
     class Meta:
         ordering = ["-created_at"]

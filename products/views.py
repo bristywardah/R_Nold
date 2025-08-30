@@ -26,13 +26,23 @@ from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Sum
 from django.db import models
 from django.db.models import OuterRef, Subquery
-from products.models import Promotion
+from products.models import Promotion, Product
 from products.serializers import PromotionSerializer,VendorProductSerializer
 from products.models import ReturnProduct
 from products.serializers import ReturnProductSerializer
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
-# from notification.utils import send_notification_to_user
 from rest_framework.exceptions import PermissionDenied, ValidationError
+from products.enums import ReturnStatus
+from notification.utils import send_notification_to_user, NotificationType
+from users.models import User
+from orders.serializers import OrderItemSerializer
+
+
+
+
+
+
+
 
 
 class IsVendorOrAdmin(BasePermission):
@@ -81,6 +91,9 @@ class ProductViewSet(viewsets.ModelViewSet):
 
         return qs.filter(is_active=True, status=ProductStatus.APPROVED.value)
 
+
+
+
     def perform_create(self, serializer):
         user = self.request.user
         if not (user.is_staff or getattr(user, "role", None) in [UserRole.ADMIN.value, UserRole.VENDOR.value]):
@@ -97,71 +110,90 @@ class ProductViewSet(viewsets.ModelViewSet):
             except SEO.DoesNotExist:
                 raise ValidationError({"seo": "SEO object not found."})
 
-        status_value = ProductStatus.APPROVED if user.is_staff or getattr(user, "role", None) == UserRole.ADMIN.value else ProductStatus.PENDING
-        serializer.save(vendor=user, seo=seo_obj, status=status_value)
+        status_value = ProductStatus.APPROVED.value if user.is_staff or getattr(user, "role", None) == UserRole.ADMIN.value else ProductStatus.PENDING.value
+        product = serializer.save(vendor=user, seo=seo_obj, status=status_value)
 
-    # ---------- Approve ----------
+        # --- Add this block to handle specifications ---
+        specs_data = self.request.data.get("specifications")
+        import json
+        if specs_data:
+            if isinstance(specs_data, str):
+                try:
+                    specs_data = json.loads(specs_data)
+                except Exception:
+                    specs_data = None
+            if specs_data and isinstance(specs_data, dict):
+                from products.models import ProductSpecifications
+                ProductSpecifications.objects.create(product=product, **specs_data)
+        # ------------------------------------------------
+
+        # Notify all admins when vendor adds a product
+        if getattr(user, "role", None) == UserRole.VENDOR.value:
+            admins = User.objects.filter(is_active=True).filter(
+                models.Q(role=UserRole.ADMIN.value) | models.Q(is_staff=True)
+            )
+            for admin in admins:
+                send_notification_to_user(
+                    admin,
+                    f"Vendor '{user.email}' added a new product '{product.name}'.",
+                    ntype=NotificationType.PRODUCT,
+                    sender=user,
+                    meta_data={"action": "product_added", "product_id": product.id}
+                )
+
+
+
+
     @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
     def accept(self, request, pk=None):
         product = self.get_object()
         if product.status != ProductStatus.PENDING.value:
-            return Response({"detail": "Only pending products can be reviewed."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"detail": "Only pending products can be reviewed."}, status=400)
 
         product.status = ProductStatus.APPROVED.value
         product.is_active = True
         product.save()
 
-        # Optional notification
-        # if product.vendor:
-        #     send_notification_to_user(user=product.vendor, message=f"Your product '{product.name}' has been approved!", sender=request.user, meta_data={"product_id": product.id, "status": "approved"})
+        # Notify vendor when product is accepted
+        send_notification_to_user(
+            product.vendor,
+            f"Your product '{product.name}' has been approved by admin.",
+            ntype=NotificationType.PRODUCT,
+            sender=request.user,
+            meta_data={"action": "product_approved", "product_id": product.id}
+        )
 
         return Response({
             "detail": "Product approved.",
             "product": self.get_serializer(product).data
-        }, status=status.HTTP_200_OK)
+        }, status=200)
 
-    # ---------- Reject ----------
     @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
     def reject(self, request, pk=None):
         product = self.get_object()
         if product.status == ProductStatus.REJECTED.value:
-            return Response({"detail": "Product already rejected."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"detail": "Product already rejected."}, status=400)
 
         product.status = ProductStatus.REJECTED.value
         product.is_active = False
         product.save()
 
-        # if product.vendor:
-        #     send_notification_to_user(
-        #         user=product.vendor,
-        #         message=f"Your product '{product.name}' has been rejected",
-        #         sender=request.user,
-        #         meta_data={"product_id": product.id, "status": "rejected"}
-        #     )
+        # Notify vendor when product is rejected
+        send_notification_to_user(
+            product.vendor,
+            f"Your product '{product.name}' has been rejected by admin.",
+            ntype=NotificationType.PRODUCT,
+            sender=request.user,
+            meta_data={"action": "product_rejected", "product_id": product.id}
+        )
+
+        # Notify vendor + admins (existing)
+        # notify_product_event(product=product, action="rejected", sender=request.user)
 
         return Response({
             "detail": "Product rejected.",
             "product": self.get_serializer(product).data
-        }, status=status.HTTP_200_OK)
-
-    # ---------- Soft-delete if part of orders ----------
-    def destroy(self, request, *args, **kwargs):
-        product = self.get_object()
-
-        if OrderItem.objects.filter(product=product).exists():
-            product.is_active = False
-            product.save()
-            return Response(
-                {"detail": "Product cannot be deleted because it is part of existing orders. It has been deactivated instead."},
-                status=status.HTTP_200_OK
-            )
-
-        return super().destroy(request, *args, **kwargs)
-
-
-
-
-
+        }, status=200)
 
 
 
@@ -403,40 +435,30 @@ class VendorProductList(viewsets.ModelViewSet):
 
 
 
-
-
-
-
-
-
-
-
 class ReturnProductViewSet(viewsets.ModelViewSet):
     queryset = ReturnProduct.objects.all()
     serializer_class = ReturnProductSerializer
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         user = self.request.user
-
         if user.is_staff or getattr(user, "role", None) == UserRole.ADMIN.value:
             return ReturnProduct.objects.all()
-
         if getattr(user, "role", None) == UserRole.VENDOR.value:
-            return ReturnProduct.objects.filter(order_item__product__vendor=user)
-
+            return ReturnProduct.objects.filter(product__vendor=user)
         if getattr(user, "role", None) == UserRole.CUSTOMER.value:
             return ReturnProduct.objects.filter(requested_by=user)
-
         return ReturnProduct.objects.none()
+    
+
+
+
 
     def perform_create(self, serializer):
         user = self.request.user
-
         if getattr(user, "role", None) != UserRole.CUSTOMER.value:
             raise PermissionDenied("Only customers can request returns.")
-
         order_item = serializer.validated_data.get("order_item")
-
         if order_item:
             if order_item.order.customer != user:
                 raise PermissionDenied("You can only return products from your own orders.")
@@ -444,14 +466,83 @@ class ReturnProductViewSet(viewsets.ModelViewSet):
                 raise serializers.ValidationError(
                     {"order_item": "You can only return products from delivered orders."}
                 )
+        instance = serializer.save(requested_by=user)
+        # Send notification to vendor
+        vendor = getattr(instance.product, "vendor", None)
+        if vendor:
+            send_notification_to_user(
+                vendor,
+                f"Product '{instance.product.name}' has a new return request from {user.email}.",
+                ntype=NotificationType.PRODUCT,
+                sender=user,
+                meta_data={"action": "return_requested", "return_id": instance.id}
+            )
 
-        serializer.save(requested_by=user)
+
+
+
+            
+
+    @action(detail=True, methods=['post'])
+    def approve(self, request, pk=None):
+        user = request.user
+        return_product = self.get_object()
+        is_vendor = (
+            getattr(user, "role", None) == UserRole.VENDOR.value
+            and getattr(return_product.product, "vendor", None) == user
+        )
+        is_admin = user.is_staff or getattr(user, "role", None) == UserRole.ADMIN.value
+        if not (is_vendor or is_admin):
+            raise PermissionDenied("You do not have permission to approve this return.")
+        return_product.status = ReturnStatus.APPROVED
+        return_product.save()
+        # Send notification to customer
+        send_notification_to_user(
+            return_product.requested_by,
+            f"Your return request for product '{return_product.product.name}' has been approved.",
+            ntype=NotificationType.PRODUCT,
+            sender=user,
+            meta_data={"action": "return_approved", "return_id": return_product.id}
+        )
+        return Response({"detail": "Return product approved."})
+
+    @action(detail=True, methods=['post'])
+    def reject(self, request, pk=None):
+        user = request.user
+        return_product = self.get_object()
+        is_vendor = (
+            getattr(user, "role", None) == UserRole.VENDOR.value
+            and getattr(return_product.product, "vendor", None) == user
+        )
+        is_admin = user.is_staff or getattr(user, "role", None) == UserRole.ADMIN.value
+        if not (is_vendor or is_admin):
+            raise PermissionDenied("You do not have permission to reject this return.")
+        return_product.status = ReturnStatus.REJECTED
+        return_product.save()
+        # Send notification to customer
+        send_notification_to_user(
+            return_product.requested_by,
+            f"Your return request for product '{return_product.product.name}' has been rejected.",
+            ntype=NotificationType.PRODUCT,
+            sender=user,
+            meta_data={"action": "return_rejected", "return_id": return_product.id}
+        )
+        return Response({"detail": "Return product rejected."})
+    
 
 
 
 
 
+class DeliveredOrderItemViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = OrderItemSerializer
+    permission_classes = [permissions.IsAuthenticated]
 
-
-
-
+    def get_queryset(self):
+        user = self.request.user
+        if not user or not user.is_authenticated:
+            return OrderItem.objects.none()
+        return OrderItem.objects.filter(
+            order__customer=user,
+            status=OrderStatus.DELIVERED.value
+        )

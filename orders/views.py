@@ -21,7 +21,7 @@ from orders.utils import create_order_from_cart, create_order_for_single_product
 from products.models import Product
 from users.enums import UserRole
 from orders.models import ShippingAddress
-
+from rest_framework.permissions import IsAuthenticated
 
 logger = logging.getLogger(__name__)
 
@@ -171,14 +171,19 @@ class OrderViewSet(viewsets.ModelViewSet):
 
 
 
-
-    # ---------- Single Product ----------
-    @action(detail=False, methods=["post"], url_path="create-single")
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="create-single",
+        permission_classes=[IsAuthenticated]  
+    )
     def create_single_action(self, request):
+        # Validate product_id
         product_id = request.data.get("product_id")
         if not product_id:
             return Response({"error": "Product ID is required."}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Validate quantity
         try:
             quantity = int(request.data.get("quantity", 1))
             if quantity < 1:
@@ -186,55 +191,98 @@ class OrderViewSet(viewsets.ModelViewSet):
         except (ValueError, TypeError):
             return Response({"error": "Quantity must be an integer."}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Validate delivery_type
         delivery_type = request.data.get("delivery_type", DeliveryType.STANDARD.value)
         if delivery_type not in [d.value for d in DeliveryType]:
             return Response({"error": "Invalid delivery type"}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Fetch product
         try:
             product = Product.objects.get(id=product_id)
         except Product.DoesNotExist:
             return Response({"error": "Product not found"}, status=status.HTTP_404_NOT_FOUND)
 
+        # Assign price explicitly
+        product_price = product.price1  # <-- Use price1 here
+
+        # Create order
         try:
             order = create_order_for_single_product(
-                product=product,
-                user=request.user,
-                quantity=quantity,
-                delivery_type=delivery_type,
-                promo_code=request.data.get("promo_code"),
-                discount=request.data.get("discount"),
-                delivery_instruction=request.data.get("delivery_instruction"),
-                estimated_delivery=request.data.get("estimated_delivery"),
-                delivery_date=request.data.get("delivery_date"),
-                payment_method=request.data.get("payment_method"),
-                notes=request.data.get("notes"),
-            )
+            product=product,
+            user=request.user,
+            quantity=quantity,
+            delivery_type=delivery_type,
+            promo_code=request.data.get("promo_code"),
+            discount=request.data.get("discount"),
+            delivery_instruction=request.data.get("delivery_instruction"),
+            estimated_delivery=request.data.get("estimated_delivery"),
+            delivery_date=request.data.get("delivery_date"),
+            payment_method=request.data.get("payment_method"),
+            notes=request.data.get("notes"),
+        )
             addr_id = request.data.get("selected_shipping_address_id")
             if addr_id:
                 address = get_object_or_404(ShippingAddress, id=addr_id, user=request.user)
                 order.selected_shipping_address = address
                 order.save(update_fields=["selected_shipping_address"])
 
-            # # Customer notify
-            # send_notification_to_user(
-            #     user=request.user,
-            #     message=f"Your order #{order.id} for {product.name} has been created successfully.",
-            #     sender=request.user,
-            #     meta_data={"order_id": order.id, "order_status": "created"}
-            # )
-            # # Vendor notify
-            # if order.vendor:
-            #     send_notification_to_user(
-            #         user=order.vendor,
-            #         message=f"You have received a new order #{order.id} for {product.name}.",
-            #         sender=request.user,
-            #         meta_data={"order_id": order.id, "order_status": "created"}
-            #     )
+            # Serialize and return order
+            return Response(
+                OrderSerializer(order, context={"request": request}).data,
+                status=status.HTTP_201_CREATED
+            )
 
-            return Response(OrderSerializer(order, context={"request": request}).data,
-                            status=status.HTTP_201_CREATED)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    # # ---------- Single Product ----------
+    # @action(detail=False, methods=["post"], url_path="create-single")
+    # def create_single_action(self, request):
+    #     product_id = request.data.get("product_id")
+    #     if not product_id:
+    #         return Response({"error": "Product ID is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+    #     try:
+    #         quantity = int(request.data.get("quantity", 1))
+    #         if quantity < 1:
+    #             return Response({"error": "Quantity must be at least 1."}, status=status.HTTP_400_BAD_REQUEST)
+    #     except (ValueError, TypeError):
+    #         return Response({"error": "Quantity must be an integer."}, status=status.HTTP_400_BAD_REQUEST)
+
+    #     delivery_type = request.data.get("delivery_type", DeliveryType.STANDARD.value)
+    #     if delivery_type not in [d.value for d in DeliveryType]:
+    #         return Response({"error": "Invalid delivery type"}, status=status.HTTP_400_BAD_REQUEST)
+
+    #     try:
+    #         product = Product.objects.get(id=product_id)
+    #     except Product.DoesNotExist:
+    #         return Response({"error": "Product not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    #     try:
+    #         order = create_order_for_single_product(
+    #             product=product,
+    #             user=request.user,
+    #             quantity=quantity,
+    #             delivery_type=delivery_type,
+    #             promo_code=request.data.get("promo_code"),
+    #             discount=request.data.get("discount"),
+    #             delivery_instruction=request.data.get("delivery_instruction"),
+    #             estimated_delivery=request.data.get("estimated_delivery"),
+    #             delivery_date=request.data.get("delivery_date"),
+    #             payment_method=request.data.get("payment_method"),
+    #             notes=request.data.get("notes"),
+    #         )
+    #         addr_id = request.data.get("selected_shipping_address_id")
+    #         if addr_id:
+    #             address = get_object_or_404(ShippingAddress, id=addr_id, user=request.user)
+    #             order.selected_shipping_address = address
+    #             order.save(update_fields=["selected_shipping_address"])
+
+
+    #         return Response(OrderSerializer(order, context={"request": request}).data,
+    #                         status=status.HTTP_201_CREATED)
+    #     except Exception as e:
+    #         return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
 

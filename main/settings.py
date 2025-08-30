@@ -69,12 +69,15 @@ CSRF_TRUSTED_ORIGINS = [
 
 AUTH_USER_MODEL = 'users.User'
 
+MEDIA_ROOT = '/home/didarahmed/R_lond/media'
 MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media' 
+
 
 # Stripe Keys
 STRIPE_WEBHOOK_SECRET = config("STRIPE_WEBHOOK_SECRET")
-# print("jsutcheck", STRIPE_WEBHOOK_SECRET)
+# STRIPE_WEBHOOK_SECRET = "whsec_fsyRqxo9ab8n4eFowAQ2a1TisfhFDt90"
+
+print("jsutcheck", STRIPE_WEBHOOK_SECRET)
 STRIPE_SECRET_KEY = config('STRIPE_SECRET_KEY')
 STRIPE_PUBLISHABLE_KEY = config('STRIPE_PUBLISHABLE_KEY')
 
@@ -135,9 +138,8 @@ INSTALLED_APPS = [
     'orders',
     'dashboard',
     'terms',
-    'chatapp'
-
-
+    'chatapp',
+    'notification',
 ]
 
 
@@ -212,7 +214,7 @@ WSGI_APPLICATION = 'main.wsgi.application'
 
 
 
-
+print("Hello World")
 
 ASGI_APPLICATION = 'main.asgi.application'
 
@@ -248,7 +250,7 @@ CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [('127.0.0.1', 6380)], 
+            "hosts": [('127.0.0.1', 6379)], 
         },
     },
 }

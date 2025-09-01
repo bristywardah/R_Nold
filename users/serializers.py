@@ -9,7 +9,8 @@ from orders.models import Order
 from products.models import Product
 from django.db.models import Count, Avg, Sum
 from common.models import Review
-
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.contrib.auth.password_validation import validate_password
 
 
 
@@ -80,15 +81,37 @@ class UserSignupSerializer(serializers.ModelSerializer):
         return user
 
 
+
+
+
 class UserLoginSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    password = serializers.CharField(write_only=True)
+    # Either login with email/password
+    email = serializers.EmailField(required=False)
+    password = serializers.CharField(write_only=True, required=False)
+    # Or login with Firebase
+    id_token = serializers.CharField(write_only=True, required=False)
+
+    def validate(self, data):
+        if not data.get("id_token") and not (data.get("email") and data.get("password")):
+            raise serializers.ValidationError(
+                "You must provide either id_token (Firebase) or email and password."
+            )
+        return data
 
 
 class UserLoginResponseSerializer(serializers.Serializer):
-    user = UserSerializer()
+    user = UserSerializer(read_only=True) 
     access_token = serializers.CharField()
     refresh_token = serializers.CharField()
+
+
+
+
+
+
+
+
+
 
 
 class UserProfileUpdateSerializer(serializers.ModelSerializer):
@@ -128,52 +151,10 @@ class UserPublicSerializer(serializers.ModelSerializer):
         return None
 
 
-# --------------------------
-# PASSWORD RESET SERIALIZERS
-# --------------------------
-
-class ForgotPasswordRequestSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-
-    def validate_email(self, value):
-        if not User.objects.filter(email=value).exists():
-            raise serializers.ValidationError("No user registered with this email.")
-        return value
-
-    def save(self):
-        email = self.validated_data['email']
-        user = User.objects.get(email=email)
-        otp = user.generate_otp()
-        # You might send OTP via email/SMS here
-        return otp
 
 
-class ForgotPasswordConfirmSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    otp_code = serializers.CharField(max_length=6)
-    new_password = serializers.CharField(write_only=True)
 
-    def validate(self, data):
-        try:
-            user = User.objects.get(email=data['email'])
-        except User.DoesNotExist:
-            raise serializers.ValidationError("Invalid email or OTP.")
 
-        if user.otp_code != data['otp_code']:
-            raise serializers.ValidationError("Invalid OTP code.")
-
-        if user.otp_created_at is None or timezone.now() - user.otp_created_at > timedelta(minutes=10):
-            raise serializers.ValidationError("OTP expired. Please request a new one.")
-
-        return data
-
-    def save(self):
-        user = User.objects.get(email=self.validated_data['email'])
-        user.set_password(self.validated_data['new_password'])
-        user.otp_code = None
-        user.otp_created_at = None
-        user.save()
-        return user
 
 
 # --------------------------
@@ -357,3 +338,120 @@ class VendorListSerializer(serializers.ModelSerializer):
             "view_url": f"/admin/vendors/{obj.id}/view",
             "delete_url": f"/admin/vendors/{obj.id}/delete"
         }
+
+
+
+
+
+
+
+class OTPSerializer(serializers.Serializer):
+    email = serializers.EmailField(required=True)
+
+    def validate_email(self, value):
+        if not User.objects.filter(email=value).exists():
+            raise serializers.ValidationError("User with this email does not exist.")
+        return value
+
+
+class SendOTPResponseSerializer(serializers.Serializer):
+    message = serializers.CharField()
+    email = serializers.EmailField()
+
+    class Meta:
+        ref_name = "SendOTPResponse"
+
+
+class ErrorResponseSerializer(serializers.Serializer):
+    error = serializers.CharField()
+    detail = serializers.CharField(required=False, allow_null=True)
+
+    class Meta:
+        ref_name = "GenericErrorResponse"
+
+
+class VerifyOTPSerializer(serializers.Serializer):
+    email = serializers.EmailField(required=True)
+    otp = serializers.CharField(min_length=6, max_length=6, required=True)
+
+    def validate_otp(self, value):
+        if not value.isdigit():
+            raise serializers.ValidationError("OTP must be numeric.")
+        return value
+
+
+class VerifyOTPResponseSerializer(serializers.Serializer):
+    message = serializers.CharField()
+    email = serializers.EmailField()
+
+    class Meta:
+        ref_name = "VerifyOTPResponse"
+
+
+class ChangePasswordSerializer(serializers.Serializer):
+    old_password = serializers.CharField(write_only=True, required=True)
+    new_password = serializers.CharField(write_only=True, min_length=8, required=True)
+
+    def validate_new_password(self, value):
+        try:
+            validate_password(value, user=self.context.get('request', {}).user)
+        except DjangoValidationError as e:
+            raise serializers.ValidationError(e.messages)
+        return value
+
+
+class ChangePasswordResponseSerializer(serializers.Serializer):
+    message = serializers.CharField()
+    full_name = serializers.CharField()
+
+    class Meta:
+        ref_name = "ChangePasswordResponse"
+
+
+
+
+class SetNewPasswordSerializer(serializers.Serializer):
+    email = serializers.EmailField(required=True)
+    new_password = serializers.CharField(write_only=True, min_length=8, required=True)
+    confirm_password = serializers.CharField(write_only=True, min_length=8, required=True)
+
+    def validate(self, data):
+        if data['new_password'] != data['confirm_password']:
+            raise serializers.ValidationError({"confirm_password": "Passwords do not match."})
+
+        try:
+            validate_password(data['new_password'])
+        except DjangoValidationError as e:
+            raise serializers.ValidationError({'new_password': list(e.messages)})
+
+        return data
+
+    class Meta:
+        ref_name = "SetNewPassword"
+
+
+
+
+class MessageResponseSerializer(serializers.Serializer):
+    message = serializers.CharField()
+
+    class Meta:
+        ref_name = "MessageResponse"
+
+
+
+
+
+
+
+
+
+
+
+class FirebaseLoginSerializer(serializers.Serializer):
+    id_token = serializers.CharField(required=True)
+
+
+
+
+

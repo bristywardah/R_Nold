@@ -69,12 +69,6 @@ def _base_payload(notification: Notification, target_user: User, full_name_from:
 
 
 def _group_name_for_user(user: User) -> str:
-    """
-    Must match NotificationConsumer.get_group_name()
-    - Admin/Staff: notifications_admins
-    - Vendor:      notifications_vendor_<id>
-    - Customer:    notifications_user_<id>
-    """
     role = (getattr(user, "role", "") or "").lower()
     if role == _ROLE_ADMIN or getattr(user, "is_staff", False):
         return "notifications_admins"
@@ -141,6 +135,11 @@ def prepare_notification_meta_data(
     return meta
 
 
+
+
+
+
+
 # ---------------------------------------------
 # Core send function
 # ---------------------------------------------
@@ -152,12 +151,7 @@ def send_notification_to_user(
     sender: Optional[User] = None,
     meta_data: Optional[Dict[str, Any]] = None,
 ) -> Notification:
-    """
-    Creates a Notification in DB and pushes it to WebSocket group.
-    Always sends notification regardless of online/offline status.
-    - DB write is guaranteed.
-    - WebSocket push is best-effort (fail-safe).
-    """
+
     assert isinstance(user, User), "user must be a User instance"
     if sender:
         assert isinstance(sender, User), "sender must be a User instance"
@@ -188,49 +182,6 @@ def send_notification_to_user(
 
 
 
-
-
-
-# ---------------------------------------------
-# Convenience wrapper for product events
-# ---------------------------------------------
-# def notify_product_event(*, product, action: str, sender: Optional[User] = None) -> Notification:
-#     """
-#     Unified function for product created/approved/rejected notifications
-#     """
-#     vendor: User = product.vendor
-#     meta = {
-#         "product_id": str(getattr(product, "id", "")),
-#         "product_name": getattr(product, "name", None),
-#         "action": action,
-#     }
-
-    # # Vendor notification
-    # n_vendor = send_notification_to_user(
-    #     vendor,
-    #     f"Your product '{product.name}' has been {action}.",
-    #     ntype=NotificationType.PRODUCT,
-    #     sender=sender,
-    #     meta_data=meta,
-    # )
-
-    # # Admin notifications (role=admin OR is_staff)
-    # admins = User.objects.filter(
-    #     is_active=True
-    # ).filter(
-    #     models.Q(role=UserRole.ADMIN.value) | models.Q(is_staff=True)
-    # )
-
-    # for admin in admins:
-    #     send_notification_to_user(
-    #         admin,
-    #         f"Product '{product.name}' by {vendor.email} has been {action}.",
-    #         ntype=NotificationType.PRODUCT,
-    #         sender=sender or vendor,
-    #         meta_data=meta,
-    #     )
-
-    # return n_vendor
 
 
 
@@ -277,6 +228,13 @@ def notify_order_payment_completed(order: Order, sender: Optional[User] = None) 
             sender=sender or order.customer,
             meta_data=meta,
         )
+
+
+
+
+
+
+
 
 
 # ---------------------------------------------
@@ -330,10 +288,6 @@ def notify_order_payment_cancelled(order: Order, sender: Optional[User] = None) 
 # ---------------------------------------------
 @database_sync_to_async
 def create_chat_notification(receiver: User, msg) -> Notification:
-    """
-    Creates a chat notification and pushes via WebSocket.
-    Always send, offline or online.
-    """
     preview = (msg.message or "")
     if len(preview) > 50:
         preview = preview[:47] + "..."
@@ -349,4 +303,38 @@ def create_chat_notification(receiver: User, msg) -> Notification:
             "receiver_id": str(receiver.id),
             "chat_type": "direct",
         },
+    )
+
+
+
+
+
+
+
+
+
+
+
+def notify_vendor_order_payment(
+    vendor: User,
+    *,
+    order_id: str,
+    amount: float,
+    order_status: str,
+    payment_method: str,
+    sender: Optional[User] = None,
+) -> Notification:
+    meta_data = {
+        "request_date": timezone.now().strftime("%Y-%m-%d"),
+        "amount": str(amount),
+        "order_status": order_status,
+        "payment_method": payment_method,
+        "order_id": order_id,
+    }
+    return send_notification_to_user(
+        user=vendor,
+        message=f"Order #{order_id} payment update.",
+        ntype=NotificationType.ORDER,
+        sender=sender,
+        meta_data=meta_data,
     )

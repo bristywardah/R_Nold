@@ -130,7 +130,7 @@ class Order(BaseModel):
 # -----------------------------
 class OrderItem(BaseModel):
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="items")
-    product = models.ForeignKey(Product, on_delete=models.PROTECT)
+    product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True, blank=True)
     quantity = models.PositiveIntegerField(default=1, validators=[MinValueValidator(1)])
     price = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal("0.00"))])
     status = models.CharField(
@@ -138,9 +138,11 @@ class OrderItem(BaseModel):
         choices=OrderStatus.choices(),
         default=OrderStatus.PENDING.value
     )
-
+    
     def __str__(self):
-        return f"{self.quantity} x {self.product.name} for {self.order.order_id}"
+        product_name = self.product.name if self.product else "Deleted Product"
+        return f"{self.quantity} x {product_name} for {self.order.order_id}"
+
 
 
 

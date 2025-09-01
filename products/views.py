@@ -10,7 +10,7 @@ from .serializers import ProductSerializer, ProductImageSerializer
 from products.enums import ProductStatus
 from products.permissions import BasePermission
 from common.models import SEO
-from products.serializers import ProductSerializer
+from products.serializers import ProductSerializer, ProductSpecificationsSerializer, ProductSpecifications
 from django.db.models import Sum
 from products.models import Product
 from django.db.models import Sum, F
@@ -92,8 +92,6 @@ class ProductViewSet(viewsets.ModelViewSet):
         return qs.filter(is_active=True, status=ProductStatus.APPROVED.value)
 
 
-
-
     def perform_create(self, serializer):
         user = self.request.user
         if not (user.is_staff or getattr(user, "role", None) in [UserRole.ADMIN.value, UserRole.VENDOR.value]):
@@ -110,10 +108,15 @@ class ProductViewSet(viewsets.ModelViewSet):
             except SEO.DoesNotExist:
                 raise ValidationError({"seo": "SEO object not found."})
 
-        status_value = ProductStatus.APPROVED.value if user.is_staff or getattr(user, "role", None) == UserRole.ADMIN.value else ProductStatus.PENDING.value
+        status_value = (
+            ProductStatus.APPROVED.value
+            if user.is_staff or getattr(user, "role", None) == UserRole.ADMIN.value
+            else ProductStatus.PENDING.value
+        )
+
         product = serializer.save(vendor=user, seo=seo_obj, status=status_value)
 
-        # --- Add this block to handle specifications ---
+        # --- specifications handle ---
         specs_data = self.request.data.get("specifications")
         import json
         if specs_data:
@@ -123,11 +126,9 @@ class ProductViewSet(viewsets.ModelViewSet):
                 except Exception:
                     specs_data = None
             if specs_data and isinstance(specs_data, dict):
-                from products.models import ProductSpecifications
                 ProductSpecifications.objects.create(product=product, **specs_data)
-        # ------------------------------------------------
 
-        # Notify all admins when vendor adds a product
+        # --- admin notify ---
         if getattr(user, "role", None) == UserRole.VENDOR.value:
             admins = User.objects.filter(is_active=True).filter(
                 models.Q(role=UserRole.ADMIN.value) | models.Q(is_staff=True)
@@ -138,9 +139,14 @@ class ProductViewSet(viewsets.ModelViewSet):
                     f"Vendor '{user.email}' added a new product '{product.name}'.",
                     ntype=NotificationType.PRODUCT,
                     sender=user,
-                    meta_data={"action": "product_added", "product_id": product.id}
+                    meta_data={"action": "product_added", "product_id": product.id},
                 )
 
+    # --- new destroy override ---
+    def perform_destroy(self, instance):
+        if instance.orderitem_set.exists():
+            raise ValidationError("This product has been ordered and cannot be deleted.")
+        instance.delete()
 
 
 
@@ -553,4 +559,41 @@ class DeliveredOrderItemViewSet(viewsets.ReadOnlyModelViewSet):
         return OrderItem.objects.filter(
             order__customer=user,
             status=OrderStatus.DELIVERED.value
+        )
+    
+
+
+
+
+
+
+
+
+
+
+class BulkProductsStatusUpdateViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated, IsVendorOrAdmin]
+
+    @action(detail=False, methods=['post'])
+    def bulk_update_status(self, request):
+        user = request.user
+        product_ids = request.data.get('product_ids', [])
+        new_status = request.data.get('status')
+
+        if not product_ids or new_status not in ProductStatus.values():
+            return Response(
+                {"detail": "Invalid product IDs or status."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        products = Product.objects.filter(id__in=product_ids)
+
+        if getattr(user, "role", None) == UserRole.VENDOR.value:
+            products = products.filter(vendor=user)
+
+        updated_count = products.update(status=new_status)
+
+        return Response(
+            {"detail": f"Updated status of {updated_count} products to '{new_status}'."},
+            status=status.HTTP_200_OK
         )

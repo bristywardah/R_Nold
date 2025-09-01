@@ -70,6 +70,13 @@ class User(AbstractBaseUser, PermissionsMixin, BaseModel):
             ("other", "Other"),
         ]
     )
+    otp = models.CharField(max_length=6, null=True, blank=True)  
+    otp_request_count = models.IntegerField(default=0)           
+    reset_password = models.BooleanField(default=False)          
+    otp_request_reset_time = models.DateTimeField(null=True, blank=True, default=None)
+
+    firebase_uid = models.CharField(max_length=128, blank=True, null=True, unique=True)
+
     date_of_birth = models.DateField(blank=True, null=True)
     national_id = models.CharField(max_length=50, blank=True)
     role = models.CharField(max_length=20, choices=UserRole.choices(), default=UserRole.CUSTOMER.value)

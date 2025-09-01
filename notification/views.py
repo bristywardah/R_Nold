@@ -11,6 +11,7 @@ from users.enums import UserRole
 from .models import Notification
 from .serializers import NotificationSerializer
 from .utils import send_notification_to_user
+from rest_framework import viewsets
 
 
 # ----------------------------
@@ -104,3 +105,15 @@ def hit_notify(request, email):
         meta_data={"info": "test notification"}
     )
     return JsonResponse({"message": "notification sent"})
+
+
+
+
+class OrderNotifyViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = NotificationSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False) or not self.request.user.is_authenticated:
+            return Notification.objects.none()
+        return self.request.user.notifications.filter(meta_data__type="order").order_by("-event_time")

@@ -5,15 +5,21 @@ from rest_framework.routers import DefaultRouter
 from users.views import (
     SellerApplicationView,
     SellerApplicationViewSet,
-    UserLoginView,
     CustomerSignupView,
     UserProfileView,
     UserProfileUpdateView,
-    ForgotPasswordRequestView,
-    ForgotPasswordConfirmView,
     CustomerListViewSet,
     VendorListViewSet,
-    UserListView
+    UserListView,
+    UnifiedLoginView,
+    BulkSellerApplicationStatusUpdateView,
+    BulkUserActivateView,
+    BulkUserDeleteView,
+    ChangePasswordView,
+    SetNewPasswordView,
+    SendPasswordResetOTPView,
+    VerifyPasswordResetOTPView,
+    
 )
 
 # Products
@@ -24,7 +30,8 @@ from products.views import (
     TopSellProductViewSet,
     PromotionViewSet,
     VendorProductList,
-    DeliveredOrderItemViewSet
+    DeliveredOrderItemViewSet,
+    BulkProductsStatusUpdateViewSet
 )
 
 # Common
@@ -46,7 +53,6 @@ from dashboard.views import (
     VendorSalesPerformanceView,
     PayoutRequestViewSet,
     DashboardStatsView,
-    SalesOverviewView,
     LatestOrdersView, 
     LowStockAlertsView,
     VendorPerformanceViewSet,
@@ -61,13 +67,15 @@ from orders.views import (
     ShippingAddressViewSet,
     CartViewSet,
     OrderReceiptView,
-    OrderItemViewSet
+    OrderItemViewSet,
+    BulkOrderStatusUpdateView
 )
 
 # Payments
 from payments.views import (
     StripeWebhookView,
     CheckoutViewSet,
+    BulkPaymentStatusUpdateView
 )
 
 # Terms
@@ -76,9 +84,6 @@ from terms.views import (
     PrivacyPolicyView,
     TermsConditionView,
 )
-
-# Chat
-# from chat import views as chat_views
 
 
 # -------- Router config --------
@@ -92,6 +97,9 @@ router.register("saved-products", SavedProductViewSet, basename="saved-product")
 router.register("product-reviews", ReviewViewSet, basename="product-review")
 router.register("admin/policies", AdminTermsViewSet, basename="admin-policies")
 router.register("admin/banners", BannerViewSet, basename="banner")
+
+
+
 
 # Products
 router.register("products", ProductViewSet, basename="product")
@@ -120,32 +128,33 @@ router.register("order-items", OrderItemViewSet, basename="order-item")
 
 
 
-# Checkout (Stripe)
 router.register("checkout", CheckoutViewSet, basename="checkout")
-
-# Dashboard / Payouts
 router.register("payouts", PayoutRequestViewSet, basename="payout")
-
 router.register('wishlist', WishlistViewSet, basename='wishlist')
-
-
 router.register("admin/vendor-performance", VendorPerformanceViewSet, basename="vendor-performance")
-
 router.register('shipping-addresses', ShippingAddressViewSet, basename='shipping-address')
 
-# -------- URL Patterns --------
+
+
 urlpatterns = [
-    # Auth & Profile
-    path("login/", UserLoginView.as_view(), name="user-login"),
+
+    path("login/", UnifiedLoginView.as_view(), name="user-login"),
     path("signup/customer/", CustomerSignupView.as_view(), name="signup-customer"),
     path("seller/apply/", SellerApplicationView.as_view(), name="seller-application-create"),
     path("profile/", UserProfileView.as_view(), name="user-profile"),
     path("profile/update/", UserProfileUpdateView.as_view(), name="profile-update"),
-    path("forgot-password/request/", ForgotPasswordRequestView.as_view(), name="forgot-password-request"),
-    path("forgot-password/confirm/", ForgotPasswordConfirmView.as_view(), name="forgot-password-confirm"),
+    # path("forgot-password/request/", ForgotPasswordRequestView.as_view(), name="forgot-password-request"),
+    # path("forgot-password/confirm/", ForgotPasswordVerifyView.as_view(), name="forgot-password-confirm"),
+    # path("forgot-password/reset/", ResetPasswordView.as_view(), name="reset-password"),
 
-    # Orders
-    # path("orders/add-shipping-address/", AddShippingAddressView.as_view(), name="add-shipping-address"),
+    path('change-password/', ChangePasswordView.as_view(), name='change-password'),
+    path('set-new-password/', SetNewPasswordView.as_view(), name='set-new-password'),
+    # path('auth/send-verification-otp/', SendVerificationOTPView.as_view(), name='send-verification-otp'),
+    # path('auth/verify-account/', VerifyAccountOTPView.as_view(), name='verify-account'),
+    path('send-reset-otp/', SendPasswordResetOTPView.as_view(), name='send-reset-otp'),
+    path('verify-reset-otp/', VerifyPasswordResetOTPView.as_view(), name='verify-reset-otp'),
+
+
     path("receipt/<str:order_id>/", OrderReceiptView.as_view(), name="order-receipt"),
 
     # Vendor Dashboard
@@ -161,38 +170,29 @@ urlpatterns = [
     # Stripe webhook
     path("stripe/webhook/", StripeWebhookView.as_view(), name="stripe-webhook"),
 
-    # Chat
-    # path("list_user_chats/", chat_views.UserChatsListView.as_view(), name="list-user-chats"),
-    # path("history/<int:pk>/", chat_views.ChatMessagesListView.as_view(), name="get-chat-messages"),
-    # path("message/<int:pk>/delete/", chat_views.MessageDeleteView.as_view(), name="delete-message"),
-    # path("message/<int:pk>/edit/", chat_views.MessageUpdateView.as_view(), name="edit-message"),
-
     path("admin/stats/", DashboardStatsView.as_view(), name="dashboard-stats"),
     path("admin/top/sell/products/", TopSellProductGraphView.as_view(), name="sell-product-graph"),
-
-
-
     path("top-sell-products/", TopSellProductGraphView.as_view(), name="sell-product-graph"),
-
-
     path("admin/alerts/low-stock/", LowStockAlertsView.as_view(), name="low-stock-alerts"),
-
-
     #  http://10.10.13.16:2500/api/admin/sales-overview/?range=1y
     #  http://10.10.13.16:2500/api/admin/sales-overview/?range=30d
     #  http://10.10.13.16:2500/api/admin/sales-overview/?range=7d
     
 
-
     path("admin/latest-orders/", LatestOrdersView.as_view(), name="latest-orders"),
-
-
     path("admin/furniture-sales-comparison/", FurnitureSalesComparisonView.as_view(), name="furniture-sales-comparison"),
-
-
     path("admin/category-sales/", CategorySalesView.as_view(), name="category-sales"),
 
-    
+
+    # Bulk Operations
+    path("admin/bulk/seller-applications/status/", BulkSellerApplicationStatusUpdateView.as_view(), name="bulk-seller-application-status"),
+    path("admin/bulk/users/activate/", BulkUserActivateView.as_view(), name="bulk-user-activate"),
+    path("admin/bulk/users/delete/", BulkUserDeleteView.as_view(), name="bulk-user-delete"),
+    path("admin/bulk/products/status/", BulkProductsStatusUpdateViewSet.as_view({'post': 'update_status'}), name="bulk-product-status"),
+    path("admin/bulk/orders/status/", BulkOrderStatusUpdateView.as_view(), name="bulk-order-status"),
+    path("admin/bulk/payments/status/", BulkPaymentStatusUpdateView.as_view(), name="bulk-payment-status"),
+
+
     # Include router URLs
     path("", include(router.urls)),
 ]

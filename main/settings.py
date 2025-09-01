@@ -17,10 +17,24 @@ from decimal import Decimal
 from corsheaders.defaults import default_headers
 from celery import Celery
 from . import env
-
+import firebase_admin
+from firebase_admin import credentials
+import os
+import sys
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
+# BASE_DIR = Path(__file__).resolve().parent.parent
+# Use Path for BASE_DIR
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# STATIC_ROOT works with Path
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+# Firebase initialization (safe for management commands)
+if 'runserver' in sys.argv or 'shell' in sys.argv:
+    firebase_json = BASE_DIR / 'main' / 'firebase-service-account.json'
+    if firebase_json.exists():
+        cred = credentials.Certificate(str(firebase_json))  # convert Path to str for Firebase
+        firebase_admin.initialize_app(cred)
 
 
 # Quick-start development settings - unsuitable for production
@@ -36,6 +50,17 @@ DEBUG = config('DEBUG', default=False, cast=bool)
 app = Celery("main")
 app.config_from_object("django.conf:settings", namespace="CELERY")
 app.autodiscover_tasks()
+
+
+
+
+EMAIL_BACKEND = config('EMAIL_BACKEND', default='django.core.mail.backends.console.EmailBackend')
+EMAIL_HOST = config('EMAIL_HOST', default='')
+EMAIL_PORT = config('EMAIL_PORT', default=587, cast=int)
+EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
+EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
+EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
+
 
 
 CELERY_BROKER_URL = config("CELERY_BROKER_URL", default="redis://redis:6379/0")
@@ -82,7 +107,6 @@ STRIPE_SECRET_KEY = config('STRIPE_SECRET_KEY')
 STRIPE_PUBLISHABLE_KEY = config('STRIPE_PUBLISHABLE_KEY')
 
 
-STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 
 DEFAULT_TAX_RATE = 0.05  # 5%
@@ -146,6 +170,8 @@ INSTALLED_APPS = [
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
+        "users.auth_backends.FirebaseAuthentication",
+
     ),
     'DEFAULT_FILTER_BACKENDS': (
         'django_filters.rest_framework.DjangoFilterBackend',

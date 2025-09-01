@@ -7,14 +7,15 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied, NotFound
 # from notification.utils import send_notification_to_user
-from orders.models import Order, CartItem
+from orders.models import Order, CartItem, OrderItem
 from orders.serializers import (
     ShippingAddressAttachSerializer,
     ShippingAddressInlineSerializer,
     OrderSerializer,
     CartItemSerializer,
     OrderReceiptSerializer,
-    ShippingAddressSerializer
+    ShippingAddressSerializer, 
+    OrderItemSerializer
 )
 from orders.enums import OrderStatus, DeliveryType
 from orders.utils import create_order_from_cart, create_order_for_single_product
@@ -145,22 +146,7 @@ class OrderViewSet(viewsets.ModelViewSet):
                     order.selected_shipping_address = address
                     order.save(update_fields=["selected_shipping_address"])
 
-            # for order in orders:
-            #     # Customer notify
-            #     send_notification_to_user(
-            #         user=request.user,
-            #         message=f"Your order #{order.id} has been created successfully.",
-            #         sender=request.user,
-            #         meta_data={"order_id": order.id, "order_status": "created"}
-            #     )
-            #     # Vendor notify
-            #     if order.vendor:
-            #         send_notification_to_user(
-            #             user=order.vendor,
-            #             message=f"You have received a new order #{order.id}.",
-            #             sender=request.user,
-            #             meta_data={"order_id": order.id, "order_status": "created"}
-            #         )
+
 
             return Response(
                 OrderSerializer(orders, many=True, context={"request": request}).data,
@@ -234,57 +220,6 @@ class OrderViewSet(viewsets.ModelViewSet):
 
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-    # # ---------- Single Product ----------
-    # @action(detail=False, methods=["post"], url_path="create-single")
-    # def create_single_action(self, request):
-    #     product_id = request.data.get("product_id")
-    #     if not product_id:
-    #         return Response({"error": "Product ID is required."}, status=status.HTTP_400_BAD_REQUEST)
-
-    #     try:
-    #         quantity = int(request.data.get("quantity", 1))
-    #         if quantity < 1:
-    #             return Response({"error": "Quantity must be at least 1."}, status=status.HTTP_400_BAD_REQUEST)
-    #     except (ValueError, TypeError):
-    #         return Response({"error": "Quantity must be an integer."}, status=status.HTTP_400_BAD_REQUEST)
-
-    #     delivery_type = request.data.get("delivery_type", DeliveryType.STANDARD.value)
-    #     if delivery_type not in [d.value for d in DeliveryType]:
-    #         return Response({"error": "Invalid delivery type"}, status=status.HTTP_400_BAD_REQUEST)
-
-    #     try:
-    #         product = Product.objects.get(id=product_id)
-    #     except Product.DoesNotExist:
-    #         return Response({"error": "Product not found"}, status=status.HTTP_404_NOT_FOUND)
-
-    #     try:
-    #         order = create_order_for_single_product(
-    #             product=product,
-    #             user=request.user,
-    #             quantity=quantity,
-    #             delivery_type=delivery_type,
-    #             promo_code=request.data.get("promo_code"),
-    #             discount=request.data.get("discount"),
-    #             delivery_instruction=request.data.get("delivery_instruction"),
-    #             estimated_delivery=request.data.get("estimated_delivery"),
-    #             delivery_date=request.data.get("delivery_date"),
-    #             payment_method=request.data.get("payment_method"),
-    #             notes=request.data.get("notes"),
-    #         )
-    #         addr_id = request.data.get("selected_shipping_address_id")
-    #         if addr_id:
-    #             address = get_object_or_404(ShippingAddress, id=addr_id, user=request.user)
-    #             order.selected_shipping_address = address
-    #             order.save(update_fields=["selected_shipping_address"])
-
-
-    #         return Response(OrderSerializer(order, context={"request": request}).data,
-    #                         status=status.HTTP_201_CREATED)
-    #     except Exception as e:
-    #         return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-
 
 
 
@@ -396,11 +331,6 @@ class OrderReceiptView(generics.RetrieveAPIView):
 
 
 
-
-from orders.serializers import OrderItemSerializer
-from orders.models import OrderItem
-from rest_framework import viewsets, permissions
-
 class OrderItemViewSet(viewsets.ModelViewSet):
     serializer_class = OrderItemSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -421,3 +351,39 @@ class OrderItemViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save()
+
+
+
+
+
+
+
+class BulkOrderStatusUpdateView(generics.UpdateAPIView):
+    serializer_class = OrderSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        role = getattr(user, "role", None)
+        if role == UserRole.ADMIN.value:
+            return Order.objects.all()
+        if role == UserRole.VENDOR.value:
+            return Order.objects.filter(vendor=user)
+        if role == UserRole.CUSTOMER.value:
+            return Order.objects.filter(customer=user)
+        return Order.objects.none()
+
+    def update(self, request, *args, **kwargs):
+        order_ids = request.data.get("order_ids", [])
+        new_status = request.data.get("order_status")
+
+        if not order_ids or not isinstance(order_ids, list):
+            return Response({"error": "order_ids must be a list of IDs."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if new_status not in [status.value for status in OrderStatus]:
+            return Response({"error": "Invalid order status."}, status=status.HTTP_400_BAD_REQUEST)
+
+        orders = self.get_queryset().filter(id__in=order_ids)
+        updated_count = orders.update(order_status=new_status)
+
+        return Response({"updated_count": updated_count}, status=status.HTTP_200_OK)

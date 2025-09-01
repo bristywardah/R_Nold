@@ -10,20 +10,31 @@ from users.enums import UserRole
 from users.serializers import (
     UserSignupSerializer,
     UserProfileUpdateSerializer,
-    ForgotPasswordRequestSerializer,
-    ForgotPasswordConfirmSerializer,
     UserSerializer,
     UserLoginResponseSerializer,
-    UserLoginSerializer,
     SellerApplicationSerializer,
     VendorListSerializer,
     CustomerListSerializer,
-    CustomerDetailSerializer
+    CustomerDetailSerializer,
+    FirebaseLoginSerializer,
+    UserLoginSerializer,
+    OTPSerializer,
+    VerifyOTPSerializer,
+    ChangePasswordSerializer,
+    SetNewPasswordSerializer, 
 )
 from users.models import User, SellerApplication
 from users.enums import SellerApplicationStatus
 from users.permissions import IsRoleAdmin
-
+from .firebase_auth import authenticate_firebase_user
+from drf_yasg.utils import swagger_auto_schema
+from rest_framework.permissions import AllowAny
+from rest_framework.generics import GenericAPIView
+from rest_framework.permissions import IsAuthenticated
+from django.utils import timezone
+from django.core.mail import send_mail
+from datetime import timedelta
+from django.conf import settings
 
 # ----------------------
 # Profile Retrieval
@@ -67,34 +78,53 @@ class UserListView(viewsets.ModelViewSet):
         })
 
 
-# ----------------------
-# Login
-# ----------------------
-class UserLoginView(generics.GenericAPIView):
-    serializer_class = UserLoginSerializer
+
+
+
+
+class UnifiedLoginView(generics.GenericAPIView):
     permission_classes = [permissions.AllowAny]
+    
+    # Add a dummy serializer to satisfy DRF/Swagger
+    serializer_class = UserLoginSerializer  
 
+    @swagger_auto_schema(
+        request_body=UserLoginSerializer,
+        responses={200: UserLoginResponseSerializer}
+    )
     def post(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        id_token = request.data.get("id_token")
+        if id_token:
+            user = authenticate_firebase_user(id_token)
+            if not user:
+                return Response({"detail": "Invalid Firebase token."}, status=status.HTTP_401_UNAUTHORIZED)
+        else:
+            # Local email/password login
+            serializer = UserLoginSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            user = authenticate(
+                request,
+                email=serializer.validated_data['email'],
+                password=serializer.validated_data['password']
+            )
+            if not user:
+                return Response({"detail": "Invalid credentials."}, status=status.HTTP_401_UNAUTHORIZED)
 
-        user = authenticate(
-            request,
-            email=serializer.validated_data['email'],
-            password=serializer.validated_data['password']
-        )
-
-        if not user:
-            return Response({"detail": "Invalid credentials."}, status=status.HTTP_401_UNAUTHORIZED)
+        # Check if user is active
         if not user.is_active:
             return Response({"detail": "User account is disabled."}, status=status.HTTP_403_FORBIDDEN)
 
         refresh = RefreshToken.for_user(user)
-        return Response(UserLoginResponseSerializer({
-            'user': UserSerializer(user).data,
-            'access_token': str(refresh.access_token),
-            'refresh_token': str(refresh),
-        }).data)
+
+        response_data = {
+            "user": user,  
+            "access_token": str(refresh.access_token),
+            "refresh_token": str(refresh),
+        }
+
+        return Response(UserLoginResponseSerializer(response_data).data)
+
+
 
 
 # ----------------------
@@ -135,6 +165,9 @@ class SellerApplicationView(generics.CreateAPIView):
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+
 
 # ----------------------
 # Seller Application Management (Admin)
@@ -190,31 +223,6 @@ class UserProfileUpdateView(generics.UpdateAPIView):
         return self.request.user
 
 
-# ----------------------
-# Forgot Password
-# ----------------------
-class ForgotPasswordRequestView(generics.GenericAPIView):
-    serializer_class = ForgotPasswordRequestSerializer
-    permission_classes = [permissions.AllowAny]
-
-    def post(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return Response({"message": "OTP sent to your email."})
-
-
-class ForgotPasswordConfirmView(generics.GenericAPIView):
-    serializer_class = ForgotPasswordConfirmSerializer
-    permission_classes = [permissions.AllowAny]
-
-    def post(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return Response({"message": "Password reset successful."})
-
-
 
 
 class UserViewSet(viewsets.ModelViewSet):
@@ -253,3 +261,211 @@ class VendorListViewSet(viewsets.ReadOnlyModelViewSet):
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     ordering_fields = ['email', 'first_name', 'last_name', 'role',"created_at"]
     filterset_fields = ["role"]
+
+
+
+
+
+
+
+
+
+
+
+
+class BulkUserDeleteView(generics.DestroyAPIView):
+    permission_classes = [permissions.IsAdminUser]
+    serializer_class = UserSerializer
+
+    def delete(self, request, *args, **kwargs):
+        ids = request.data.get("ids", [])
+        if not isinstance(ids, list) or not all(isinstance(i, int) for i in ids):
+            return Response({"detail": "Invalid IDs format. Must be a list of integers."}, status=status.HTTP_400_BAD_REQUEST)
+
+        users_to_delete = User.objects.filter(id__in=ids)
+        deleted_count, _ = users_to_delete.delete()
+        return Response({"detail": f"Deleted {deleted_count} users."}, status=status.HTTP_200_OK)
+    
+
+
+
+
+
+
+
+
+
+
+
+class BulkUserActivateView(generics.GenericAPIView):
+    permission_classes = [permissions.IsAdminUser]
+    serializer_class = UserSerializer
+
+    def post(self, request, *args, **kwargs):
+        ids = request.data.get("ids", [])
+        if not isinstance(ids, list) or not all(isinstance(i, int) for i in ids):
+            return Response({"detail": "Invalid IDs format. Must be a list of integers."}, status=status.HTTP_400_BAD_REQUEST)
+
+        users_to_activate = User.objects.filter(id__in=ids, is_active=False)
+        updated_count = users_to_activate.update(is_active=True)
+        return Response({"detail": f"Activated {updated_count} users."}, status=status.HTTP_200_OK)
+    
+
+
+class BulkSellerApplicationStatusUpdateView(generics.GenericAPIView):
+    permission_classes = [permissions.IsAdminUser]
+    serializer_class = SellerApplicationSerializer
+
+    def post(self, request, *args, **kwargs):
+        ids = request.data.get("ids", [])
+        new_status = request.data.get("status")
+        valid_statuses = [status.value for status in SellerApplicationStatus]
+
+        if not isinstance(ids, list) or not all(isinstance(i, int) for i in ids):
+            return Response({"detail": "Invalid IDs format. Must be a list of integers."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if new_status not in valid_statuses:
+            return Response({"detail": f"Invalid status. Must be one of: {', '.join(valid_statuses)}."}, status=status.HTTP_400_BAD_REQUEST)
+
+        applications_to_update = SellerApplication.objects.filter(id__in=ids)
+        updated_count = applications_to_update.update(status=new_status)
+        return Response({"detail": f"Updated status of {updated_count} applications to '{new_status}'."}, status=status.HTTP_200_OK)
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+class SendPasswordResetOTPView(GenericAPIView):
+    serializer_class = OTPSerializer
+    permission_classes = [AllowAny]
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data['email']
+        try:
+            user = User.objects.get(email=email)
+            # if not user.is_verified:
+            #     return Response({'error': 'User is not verified. Cannot send reset OTP.'}, status=400)
+            now = timezone.now()
+            if not user.otp_request_reset_time or now > user.otp_request_reset_time + timedelta(hours=1):
+                user.otp_request_count = 0
+                user.otp_request_reset_time = now
+            if user.otp_request_count >= 5:
+                return Response({'error': 'Too many OTP requests.', 'detail': 'Try again after 1 hour.'},
+                                status=status.HTTP_429_TOO_MANY_REQUESTS)
+            otp = str(random.randint(100000, 999999))
+            user.otp = otp
+            user.otp_created_at = now
+            user.otp_request_count += 1
+            user.reset_password = False  
+            user.save(update_fields=['otp', 'otp_created_at', 'otp_request_count', 'otp_request_reset_time', 'reset_password'])
+            send_mail(
+                subject='Reset Your Password',
+                message=f'Your OTP to reset your password is {otp}',
+                from_email=settings.EMAIL_HOST_USER,
+                recipient_list=[email],
+                fail_silently=False
+            )
+            return Response({'message': 'Password reset OTP sent successfully', 'email': email}, status=200)
+        except User.DoesNotExist:
+            return Response({'error': 'User not found'}, status=404)
+
+
+
+
+class VerifyPasswordResetOTPView(GenericAPIView):
+    serializer_class = VerifyOTPSerializer
+    permission_classes = [AllowAny]
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data['email']
+        otp = serializer.validated_data['otp']
+        try:
+            user = User.objects.get(email=email, otp=otp)
+            # if not user.is_verified:
+            #     return Response({'error': 'User is not verified'}, status=400)
+
+            if not user.otp_created_at or timezone.now() > user.otp_created_at + timedelta(minutes=1):
+                return Response({'error': 'OTP has expired'}, status=400)
+            user.otp = ''
+            user.otp_created_at = None
+            user.reset_password = True
+            user.save(update_fields=['otp', 'otp_created_at', 'reset_password'])
+            return Response({'message': 'OTP verified. You can now reset your password.', 'email': email}, status=200)
+        except User.DoesNotExist:
+            return Response({'error': 'Invalid OTP or email'}, status=400)
+
+
+
+
+
+
+
+
+
+class ChangePasswordView(GenericAPIView):
+    serializer_class = ChangePasswordSerializer
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data, context={'request': request}) 
+        serializer.is_valid(raise_exception=True)
+        old_password = serializer.validated_data['old_password']
+        new_password = serializer.validated_data['new_password']
+        user = request.user
+
+        if not user.check_password(old_password):
+            return Response(
+                {'error': 'Old password is incorrect', 'detail': 'The old password you provided does not match your current password.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+ 
+        user.set_password(new_password)
+        user.save(update_fields=["password"])
+        full_name = f"{user.first_name} {user.last_name}".strip()
+        return Response(
+            {'message': 'Password changed successfully', 'full_name': full_name},
+            status=status.HTTP_200_OK
+        )
+
+
+
+
+class SetNewPasswordView(GenericAPIView):
+    permission_classes = [AllowAny]
+    serializer_class = SetNewPasswordSerializer
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data['email']
+        new_password = serializer.validated_data['new_password']
+        try:
+            user = User.objects.get(email=email)
+
+            if not user.reset_password:
+                return Response(
+                    {'error': 'Forbidden', 'detail': 'OTP verification required before resetting password.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            user.set_password(new_password)
+            user.reset_password = False
+            user.save(update_fields=['password', 'reset_password'])
+            return Response(
+                {'message': 'Password reset successful.'},
+                status=status.HTTP_200_OK
+            )
+        except User.DoesNotExist:
+            return Response(
+                {'error': 'User not found', 'detail': 'No user registered with this email address.'},
+                status=status.HTTP_404_NOT_FOUND
+            )

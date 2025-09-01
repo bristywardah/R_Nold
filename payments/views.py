@@ -261,3 +261,42 @@ class StripeWebhookView(APIView):
         except Exception as e:
             logger.error(f"Payment failed handler error: {e}", exc_info=True)
             return Response({"error": "Processing error"}, status=500)
+
+
+
+
+
+
+
+
+
+
+class BulkPaymentStatusUpdateView(APIView):
+    permission_classes = [permissions.IsAdminUser]
+
+    def post(self, request, *args, **kwargs):
+
+        updates = request.data.get("updates", [])
+        if not isinstance(updates, list) or not updates:
+            return Response({"error": "Invalid updates format"}, status=status.HTTP_400_BAD_REQUEST)
+
+        results = []
+        for update in updates:
+            payment_id = update.get("payment_id")
+            new_status = update.get("status")
+            if not payment_id or not new_status:
+                results.append({"payment_id": payment_id, "status": "failed", "reason": "Missing fields"})
+                continue
+
+            try:
+                payment = Payment.objects.get(id=payment_id)
+                payment.status = new_status
+                payment.save(update_fields=["status"])
+                results.append({"payment_id": payment_id, "status": "success"})
+            except Payment.DoesNotExist:
+                results.append({"payment_id": payment_id, "status": "failed", "reason": "Payment not found"})
+            except Exception as e:
+                logger.error(f"Failed to update payment {payment_id}: {e}", exc_info=True)
+                results.append({"payment_id": payment_id, "status": "failed", "reason": "Update error"})
+
+        return Response({"results": results}, status=status.HTTP_200_OK)

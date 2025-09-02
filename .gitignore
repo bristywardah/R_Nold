@@ -1,4 +1,5 @@
-__pycache__
+__pycache__/
 .env
 db.sqlite3
-venv
+venv/
+firebase_service_account.json

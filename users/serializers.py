@@ -1,18 +1,14 @@
 from rest_framework import serializers
 from users.models import User, SellerApplication
 from django.utils import timezone
-from datetime import timedelta
 from users.enums import SellerApplicationStatus
 import random, string
-from payments.models import Payment
 from orders.models import Order
 from products.models import Product
-from django.db.models import Count, Avg, Sum
+from django.db.models import Sum,Avg
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.contrib.auth.password_validation import validate_password
-
-
-
+from review.models import Review 
 
 
 # --------------------------
@@ -84,10 +80,8 @@ class UserSignupSerializer(serializers.ModelSerializer):
 
 
 class UserLoginSerializer(serializers.Serializer):
-    # Either login with email/password
     email = serializers.EmailField(required=False)
     password = serializers.CharField(write_only=True, required=False)
-    # Or login with Firebase
     id_token = serializers.CharField(write_only=True, required=False)
 
     def validate(self, data):
@@ -293,9 +287,13 @@ class CustomerDetailSerializer(UserSerializer):
         return OrderReceiptSerializer(orders, many=True).data
 
 
+
+
+
 # --------------------------
 # VENDOR LIST SERIALIZER
 # --------------------------
+
 
 class VendorListSerializer(serializers.ModelSerializer):
     user_id = serializers.SerializerMethodField()
@@ -328,6 +326,10 @@ class VendorListSerializer(serializers.ModelSerializer):
     def get_orders_count(self, obj):
         return Order.objects.filter(vendor=obj).count()
 
+    def get_ratings(self, obj):
+        products = Product.objects.filter(vendor=obj)
+        avg_rating = Review.objects.filter(product__in=products).aggregate(avg=Avg("rating"))["avg"]
+        return round(avg_rating, 2) if avg_rating else 0
 
     def get_actions(self, obj):
         return {
@@ -437,17 +439,19 @@ class MessageResponseSerializer(serializers.Serializer):
 
 
 
-
-
-
-
-
-
-
 class FirebaseLoginSerializer(serializers.Serializer):
     id_token = serializers.CharField(required=True)
 
 
 
+
+
+
+class BulkUserActionSerializer(serializers.Serializer):
+    user_ids = serializers.ListField(child=serializers.IntegerField(), required=True)
+
+class BulkSellerAppActionSerializer(serializers.Serializer):
+    application_ids = serializers.ListField(child=serializers.IntegerField(), required=True)
+    status = serializers.ChoiceField(choices=SellerApplicationStatus.choices(), required=True)
 
 

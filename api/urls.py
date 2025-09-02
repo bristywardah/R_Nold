@@ -12,13 +12,11 @@ from users.views import (
     VendorListViewSet,
     UserListView,
     UnifiedLoginView,
-    BulkSellerApplicationStatusUpdateView,
-    BulkUserActivateView,
-    BulkUserDeleteView,
     ChangePasswordView,
     SetNewPasswordView,
     SendPasswordResetOTPView,
     VerifyPasswordResetOTPView,
+    UserViewSet
     
 )
 
@@ -74,7 +72,7 @@ from orders.views import (
 from payments.views import (
     StripeWebhookView,
     CheckoutViewSet,
-    BulkPaymentStatusUpdateView
+    
 )
 
 # Terms
@@ -117,7 +115,10 @@ router.register("deliverd/item", DeliveredOrderItemViewSet, basename="deliverd-p
 router.register("seller/applications", SellerApplicationViewSet, basename="seller-application")
 router.register("customers", CustomerListViewSet, basename="customers")
 router.register("vendors", VendorListViewSet, basename="vendors")
-router.register("users", UserListView, basename="user")
+router.register("user-list", UserListView, basename="user")
+
+router.register("users", UserViewSet, basename="user-viewset")
+
 
 
 # Orders & Cart
@@ -135,7 +136,6 @@ router.register('shipping-addresses', ShippingAddressViewSet, basename='shipping
 
 
 router.register('bulk/products/status', BulkProductsStatusUpdateViewSet, basename='bulk-products-status')
-
 
 router.register('bulk/orders/status', BulkOrdersStatusUpdateViewSet, basename='bulk-orders-status')
 
@@ -182,15 +182,6 @@ urlpatterns = [
     path("admin/latest-orders/", LatestOrdersView.as_view(), name="latest-orders"),
     path("admin/furniture-sales-comparison/", FurnitureSalesComparisonView.as_view(), name="furniture-sales-comparison"),
     path("admin/category-sales/", CategorySalesView.as_view(), name="category-sales"),
-
-
-    # Bulk Operations
-    path("admin/bulk/seller-applications/status/", BulkSellerApplicationStatusUpdateView.as_view(), name="bulk-seller-application-status"),
-    path("admin/bulk/users/activate/", BulkUserActivateView.as_view(), name="bulk-user-activate"),
-    path("admin/bulk/users/delete/", BulkUserDeleteView.as_view(), name="bulk-user-delete"),
-    # path("bulk/products/status/", BulkProductsStatusUpdateViewSet.as_view({'post': 'update_status'}), name="bulk-product-status"),
-    # path("admin/bulk/orders/status/", BulkOrderStatusUpdateView.as_view(), name="bulk-order-status"),
-    path("admin/bulk/payments/status/", BulkPaymentStatusUpdateView.as_view(), name="bulk-payment-status"),
 
 
     # Include router URLs

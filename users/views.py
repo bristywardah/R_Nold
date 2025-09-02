@@ -16,16 +16,16 @@ from users.serializers import (
     VendorListSerializer,
     CustomerListSerializer,
     CustomerDetailSerializer,
-    FirebaseLoginSerializer,
     UserLoginSerializer,
     OTPSerializer,
     VerifyOTPSerializer,
     ChangePasswordSerializer,
     SetNewPasswordSerializer, 
+    BulkUserActionSerializer,
+    BulkSellerAppActionSerializer,
 )
 from users.models import User, SellerApplication
 from users.enums import SellerApplicationStatus
-from users.permissions import IsRoleAdmin
 from .firebase_auth import authenticate_firebase_user
 from drf_yasg.utils import swagger_auto_schema
 from rest_framework.permissions import AllowAny
@@ -35,6 +35,11 @@ from django.utils import timezone
 from django.core.mail import send_mail
 from datetime import timedelta
 from django.conf import settings
+
+
+
+
+
 
 # ----------------------
 # Profile Retrieval
@@ -146,9 +151,9 @@ class CustomerSignupView(generics.CreateAPIView):
         }, status=status.HTTP_201_CREATED)
 
 
-# ----------------------
-# Seller Application Create
-# ----------------------
+# # ----------------------
+# # Seller Application Create
+# # ----------------------
 class SellerApplicationView(generics.CreateAPIView):
     serializer_class = SellerApplicationSerializer
     permission_classes = [permissions.IsAuthenticated]  
@@ -177,6 +182,17 @@ class SellerApplicationViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = SellerApplicationSerializer
     permission_classes = [permissions.IsAdminUser] 
 
+
+    @action(detail=False, methods=['post'], url_path='bulk-update-status', permission_classes=[permissions.IsAdminUser])
+    def bulk_update_status(self, request):
+        serializer = BulkSellerAppActionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        app_ids = serializer.validated_data['application_ids']
+        new_status = serializer.validated_data['status']
+        updated = SellerApplication.objects.filter(id__in=app_ids).update(status=new_status)
+        return Response({'updated_count': updated, 'new_status': new_status}, status=status.HTTP_200_OK)
+
+
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
         application = self.get_object()
@@ -198,6 +214,9 @@ class SellerApplicationViewSet(viewsets.ReadOnlyModelViewSet):
             "user_role": application.user.role
         }, status=status.HTTP_200_OK)
 
+
+
+
     @action(detail=True, methods=['post'])
     def cancel(self, request, pk=None):
         application = self.get_object()
@@ -211,6 +230,12 @@ class SellerApplicationViewSet(viewsets.ReadOnlyModelViewSet):
         return Response({
             "detail": "Application cancelled successfully."
         }, status=status.HTTP_200_OK)
+
+
+
+
+
+
 
 # ----------------------
 # Profile Update
@@ -234,6 +259,15 @@ class UserViewSet(viewsets.ModelViewSet):
     ordering_fields = ['email', 'first_name', 'last_name', 'role']
     ordering = ['email']
     lookup_field = 'id' 
+
+    @action(detail=False, methods=['post'], url_path='bulk-delete', permission_classes=[permissions.IsAdminUser])
+    def bulk_delete(self, request):
+        serializer = BulkUserActionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user_ids = serializer.validated_data['user_ids']
+        deleted, _ = User.objects.filter(id__in=user_ids).delete()
+        return Response({'deleted_count': deleted}, status=status.HTTP_200_OK)
+
 
 
 
@@ -261,82 +295,6 @@ class VendorListViewSet(viewsets.ReadOnlyModelViewSet):
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     ordering_fields = ['email', 'first_name', 'last_name', 'role',"created_at"]
     filterset_fields = ["role"]
-
-
-
-
-
-
-
-
-
-
-
-
-class BulkUserDeleteView(generics.DestroyAPIView):
-    permission_classes = [permissions.IsAdminUser]
-    serializer_class = UserSerializer
-
-    def delete(self, request, *args, **kwargs):
-        ids = request.data.get("ids", [])
-        if not isinstance(ids, list) or not all(isinstance(i, int) for i in ids):
-            return Response({"detail": "Invalid IDs format. Must be a list of integers."}, status=status.HTTP_400_BAD_REQUEST)
-
-        users_to_delete = User.objects.filter(id__in=ids)
-        deleted_count, _ = users_to_delete.delete()
-        return Response({"detail": f"Deleted {deleted_count} users."}, status=status.HTTP_200_OK)
-    
-
-
-
-
-
-
-
-
-
-
-
-class BulkUserActivateView(generics.GenericAPIView):
-    permission_classes = [permissions.IsAdminUser]
-    serializer_class = UserSerializer
-
-    def post(self, request, *args, **kwargs):
-        ids = request.data.get("ids", [])
-        if not isinstance(ids, list) or not all(isinstance(i, int) for i in ids):
-            return Response({"detail": "Invalid IDs format. Must be a list of integers."}, status=status.HTTP_400_BAD_REQUEST)
-
-        users_to_activate = User.objects.filter(id__in=ids, is_active=False)
-        updated_count = users_to_activate.update(is_active=True)
-        return Response({"detail": f"Activated {updated_count} users."}, status=status.HTTP_200_OK)
-    
-
-
-class BulkSellerApplicationStatusUpdateView(generics.GenericAPIView):
-    permission_classes = [permissions.IsAdminUser]
-    serializer_class = SellerApplicationSerializer
-
-    def post(self, request, *args, **kwargs):
-        ids = request.data.get("ids", [])
-        new_status = request.data.get("status")
-        valid_statuses = [status.value for status in SellerApplicationStatus]
-
-        if not isinstance(ids, list) or not all(isinstance(i, int) for i in ids):
-            return Response({"detail": "Invalid IDs format. Must be a list of integers."}, status=status.HTTP_400_BAD_REQUEST)
-
-        if new_status not in valid_statuses:
-            return Response({"detail": f"Invalid status. Must be one of: {', '.join(valid_statuses)}."}, status=status.HTTP_400_BAD_REQUEST)
-
-        applications_to_update = SellerApplication.objects.filter(id__in=ids)
-        updated_count = applications_to_update.update(status=new_status)
-        return Response({"detail": f"Updated status of {updated_count} applications to '{new_status}'."}, status=status.HTTP_200_OK)
-    
-
-
-
-
-
-
 
 
 
@@ -469,3 +427,9 @@ class SetNewPasswordView(GenericAPIView):
                 {'error': 'User not found', 'detail': 'No user registered with this email address.'},
                 status=status.HTTP_404_NOT_FOUND
             )
+        
+
+
+
+
+

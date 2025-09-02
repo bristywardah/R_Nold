@@ -1,6 +1,4 @@
 from rest_framework import serializers
-from decimal import Decimal
-from django.utils import timezone
 from products.models import Product, ProductImage, Promotion, ReturnProduct, ProductSpecifications
 from common.models import Category, Tag, SEO, ImageUpload
 from products.enums import DiscountType
@@ -8,7 +6,6 @@ from django.db.models import Q
 from users.enums import UserRole
 from orders.models import OrderItem
 from orders.enums import OrderStatus
-from review.serializers import ReviewSerializer
 from review.models import Review
 
 

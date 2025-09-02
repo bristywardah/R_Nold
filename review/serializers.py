@@ -19,7 +19,7 @@ class ReviewSerializer(serializers.ModelSerializer):
         source="product",
         write_only=True
     )
-    product = serializers.SerializerMethodField(read_only=True)  # no circular import
+    product = serializers.SerializerMethodField(read_only=True)  
     time_since = serializers.SerializerMethodField()
     images = ReviewImageSerializer(many=True, read_only=True)
     uploaded_images = serializers.ListField(

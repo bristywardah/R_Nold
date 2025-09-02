@@ -1,5 +1,9 @@
-from firebase_admin import auth
+import firebase_admin
+from firebase_admin import credentials, auth
 from users.models import User
+
+cred = credentials.Certificate("/home/didarahmed/R_lond/firebase_service_account.json")
+firebase_admin.initialize_app(cred)
 
 def authenticate_firebase_user(id_token):
     try:
@@ -9,7 +13,6 @@ def authenticate_firebase_user(id_token):
         name = decoded_token.get("name")
         picture = decoded_token.get("picture")
 
-        # find or create Django user
         user, created = User.objects.get_or_create(email=email, defaults={
             "first_name": name.split(" ")[0] if name else "",
             "last_name": " ".join(name.split(" ")[1:]) if name else "",
@@ -17,4 +20,5 @@ def authenticate_firebase_user(id_token):
         })
         return user
     except Exception as e:
+        print("Firebase token error:", e)  
         return None

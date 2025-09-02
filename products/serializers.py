@@ -8,8 +8,8 @@ from django.db.models import Q
 from users.enums import UserRole
 from orders.models import OrderItem
 from orders.enums import OrderStatus
-
-
+from review.serializers import ReviewSerializer
+from review.models import Review
 
 
 
@@ -76,6 +76,25 @@ class ProductSpecificationsSerializer(serializers.ModelSerializer):
 
 
 
+class ProductReviewInlineSerializer(serializers.ModelSerializer):
+    user = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Review
+        fields = ["id", "rating", "comment", "user", "created_at"]
+
+    def get_user(self, obj):
+        first_name = getattr(obj.user, "first_name", "")
+        last_name = getattr(obj.user, "last_name", "")
+        full_name = (first_name + " " + last_name).strip()
+        if full_name:
+            name = full_name
+        else:
+            name = getattr(obj.user, "username", "Unknown")
+        return {
+            "id": obj.user.id,
+            "name": name
+        }
 
 
 
@@ -103,6 +122,10 @@ class ProductSerializer(serializers.ModelSerializer):
         write_only=True,
         required=False
     )
+    reviews = ProductReviewInlineSerializer(many=True, read_only=True)
+    
+    average_rating = serializers.SerializerMethodField()
+
     specifications = serializers.SerializerMethodField()
 
     class Meta:
@@ -119,13 +142,22 @@ class ProductSerializer(serializers.ModelSerializer):
             "status", "featured", "is_active",
             "images", "uploaded_images",
             "created_at", "updated_at", "is_approve",
-            "specifications"
+            "specifications", "average_rating", "reviews", 
         ]
         read_only_fields = [
-            "id", "vendor", "vendor_id", "slug", "status", "featured",
+            "id", "average_rating", "vendor", "vendor_id", "slug", "status", "featured",
             "created_at", "updated_at", "is_active", "is_approve",
         ]
         ref_name = "ProductsProductSerializer"
+
+
+    def get_average_rating(self, obj):
+        reviews = obj.reviews.all()
+        if not reviews.exists():
+            return 0
+        total = sum([r.rating for r in reviews])
+        return round(total / reviews.count(), 2)  
+
 
     def get_vendor_details(self, obj):
         from users.serializers import UserSerializer

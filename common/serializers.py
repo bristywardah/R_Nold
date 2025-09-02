@@ -1,11 +1,10 @@
 
 from rest_framework import serializers
-from common.models import Category, Tag, SEO, SavedProduct, Review
+from common.models import Category, Tag, SEO, SavedProduct
 from products.models import Product
 from users.serializers import UserPublicSerializer
 from orders.models import Order, OrderItem, ShippingAddress
 from common.models import ImageUpload
-from common.models import ReviewImage
 from common.models import Banner, Wishlist
 from products.serializers import ProductSerializer
 
@@ -64,46 +63,6 @@ class SEOSerializer(serializers.ModelSerializer):
         fields = ['id', 'title', 'meta_description']
 
 
-# # -------------------
-# # Product
-# # -------------------
-# class ProductSerializer(serializers.ModelSerializer):
-#     vendor = UserPublicSerializer(read_only=True)
-#     category = CategorySerializer(read_only=True)
-#     category_id = serializers.PrimaryKeyRelatedField(
-#         queryset=Category.objects.all(), source='category', write_only=True
-#     )
-#     tags = TagSerializer(many=True, read_only=True)
-#     tag_ids = serializers.PrimaryKeyRelatedField(
-#         queryset=Tag.objects.all(), many=True, source='tags', write_only=True
-#     )
-
-#     class Meta:
-#         model = Product
-#         fields = [
-#             'id', 'vendor', 'name', 'description', 'price',
-#             'is_stock', 'stock_quantity', 'category', 'category_id',
-#             'tags', 'tag_ids', 'created_at', 'updated_at'
-#         ]
-#         read_only_fields = ['id', 'vendor', 'created_at', 'updated_at']
-#         ref_name = "CommonProductsSerializer"
-
-
-#     def create(self, validated_data):
-#         tags = validated_data.pop('tags', [])
-#         validated_data['vendor'] = self.context['request'].user
-#         product = super().create(validated_data)
-#         product.tags.set(tags)
-#         return product
-
-#     def update(self, instance, validated_data):
-#         tags = validated_data.pop('tags', None)
-#         instance = super().update(instance, validated_data)
-#         if tags is not None:
-#             instance.tags.set(tags)
-#         return instance
-
-
 # -------------------
 # SavedProduct
 # -------------------
@@ -124,64 +83,6 @@ class SavedProductSerializer(serializers.ModelSerializer):
         validated_data['vendor'] = self.context['request'].user
         return super().create(validated_data)
 
-
-# -------------------
-# Review
-# -------------------
-
-
-class ReviewImageSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = ReviewImage
-        fields = ['id', 'image', 'alt_text', 'uploaded_at']
-        read_only_fields = ['id', 'uploaded_at']
-        ref_name = "ReviewImageSerializer"
-
-
-
-class ReviewSerializer(serializers.ModelSerializer):
-    user = UserPublicSerializer(read_only=True)
-    product_name = serializers.CharField(source='product.name', read_only=True)
-    images = ReviewImageSerializer(many=True, required=False)  # nested images
-
-    class Meta:
-        model = Review
-        fields = [
-            'id', 'product', 'product_name', 'user', 'rating', 'comment',
-            'images',  # add images here
-            'created_at', 'updated_at'
-        ]
-        read_only_fields = ['id', 'user', 'created_at', 'updated_at']
-        ref_name = "ReviewSerializer"
-
-
-    def validate_rating(self, value):
-        if not (1 <= value <= 5):
-            raise serializers.ValidationError("Rating must be between 1 and 5.")
-        return value
-
-    def create(self, validated_data):
-        images_data = validated_data.pop('images', [])
-        validated_data['user'] = self.context['request'].user
-        review = super().create(validated_data)
-
-        # create images
-        for img_data in images_data:
-            ReviewImage.objects.create(review=review, **img_data)
-
-        return review
-
-    def update(self, instance, validated_data):
-        images_data = validated_data.pop('images', None)
-        review = super().update(instance, validated_data)
-
-        if images_data is not None:
-            # optional: clear existing images and replace
-            instance.images.all().delete()
-            for img_data in images_data:
-                ReviewImage.objects.create(review=review, **img_data)
-
-        return review
 
 
 

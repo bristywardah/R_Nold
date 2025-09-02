@@ -1,28 +1,23 @@
 # common/views.py
 from rest_framework import viewsets, permissions, filters, status
 from rest_framework.response import Response
-from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError as DRFValidationError
-from django.shortcuts import get_object_or_404
-from django.db import transaction
 
-from common.models import Category, Tag, SEO, SavedProduct, Review
+
+from common.models import Category, Tag, SEO, SavedProduct
 from common.serializers import (
     CategorySerializer, TagSerializer, SEOSerializer,
-    SavedProductSerializer, ReviewSerializer
+    SavedProductSerializer
 )
-from products.models import Product 
-from products.enums import ProductStatus
-from orders.models import Order, OrderItem, ShippingAddress
-from orders.serializers import OrderReceiptSerializer
+
+from orders.models import Order
+
 from common.serializers import OrderListSerializer
 from rest_framework.permissions import BasePermission
 from users.enums import UserRole
-from payments.enums import PaymentStatusEnum
 from rest_framework import viewsets, permissions, filters
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.pagination import PageNumberPagination
-from django.db.models import Q
 import logging
 from common.models import Banner, Wishlist
 from common.serializers import BannerSerializer, WishlistSerializer
@@ -185,55 +180,11 @@ class SavedProductViewSet(viewsets.ModelViewSet):
 
 
 
-# -------------------
-# Review
-# -------------------
-
-class ReviewViewSet(viewsets.ModelViewSet):
-    serializer_class = ReviewSerializer
-    permission_classes = [
-        permissions.IsAuthenticatedOrReadOnly,
-    ]
-    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
-    search_fields = ['product__name', 'comment']
-    ordering_fields = ['created_at', 'updated_at', 'rating']
-    ordering = ['-created_at']
-
-    def get_queryset(self):
-        return Review.objects.select_related('product', 'user').prefetch_related('images').filter(
-            product__status=ProductStatus.APPROVED.value
-        )
-
-    def perform_create(self, serializer):
-        user = self.request.user
-
-        # Only customers can create reviews
-        if getattr(user, 'role', None) != 'customer':
-            raise PermissionDenied("Only customers can create reviews.")
-
-        product = serializer.validated_data.get('product')
-
-        # Product must be approved
-        if product.status != ProductStatus.APPROVED.value:
-            raise PermissionDenied("Cannot review a product that is not approved.")
-
-        # Save review (nested images handled in serializer)
-        serializer.save(user=user)
-
-    def perform_update(self, serializer):
-        # Optional: ensure user can only update their own review
-        review = self.get_object()
-        if review.user != self.request.user:
-            raise PermissionDenied("You can only update your own review.")
-        serializer.save()
-
 
 class StandardResultsSetPagination(PageNumberPagination):
     page_size = 5
     page_size_query_param = 'page_size'
     max_page_size = 100
-
-
 
 
 

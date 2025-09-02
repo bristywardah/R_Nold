@@ -6,11 +6,8 @@ from rest_framework import viewsets, generics, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied, NotFound
-# from notification.utils import send_notification_to_user
 from orders.models import Order, CartItem, OrderItem
 from orders.serializers import (
-    ShippingAddressAttachSerializer,
-    ShippingAddressInlineSerializer,
     OrderSerializer,
     CartItemSerializer,
     OrderReceiptSerializer,
@@ -23,6 +20,8 @@ from products.models import Product
 from users.enums import UserRole
 from orders.models import ShippingAddress
 from rest_framework.permissions import IsAuthenticated
+from products.permissions import IsVendorOrAdmin
+
 
 logger = logging.getLogger(__name__)
 
@@ -355,35 +354,50 @@ class OrderItemViewSet(viewsets.ModelViewSet):
 
 
 
+class BulkOrdersStatusUpdateViewSet(viewsets.ViewSet):
+    permission_classes = [IsVendorOrAdmin]
+    http_method_names = ["get", "post"]
 
+    def list(self, request):
+        return Response(
+            {
+                "detail": "Use POST /api/bulk/orders/status/update-status/ for bulk order status updates."
+            },
+            status=status.HTTP_200_OK,
+        )
 
-
-class BulkOrderStatusUpdateView(generics.UpdateAPIView):
-    serializer_class = OrderSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_queryset(self):
-        user = self.request.user
-        role = getattr(user, "role", None)
-        if role == UserRole.ADMIN.value:
-            return Order.objects.all()
-        if role == UserRole.VENDOR.value:
-            return Order.objects.filter(vendor=user)
-        if role == UserRole.CUSTOMER.value:
-            return Order.objects.filter(customer=user)
-        return Order.objects.none()
-
-    def update(self, request, *args, **kwargs):
+    @action(detail=False, methods=["post"], url_path="update-status")
+    def bulk_update_status(self, request):
+        user = request.user
         order_ids = request.data.get("order_ids", [])
-        new_status = request.data.get("order_status")
+        new_status = request.data.get("status")
 
-        if not order_ids or not isinstance(order_ids, list):
-            return Response({"error": "order_ids must be a list of IDs."}, status=status.HTTP_400_BAD_REQUEST)
+        if not order_ids or new_status not in OrderStatus._value2member_map_:
+            return Response(
+                {"detail": "Invalid order IDs or status."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        if new_status not in [status.value for status in OrderStatus]:
-            return Response({"error": "Invalid order status."}, status=status.HTTP_400_BAD_REQUEST)
+        orders = Order.objects.filter(id__in=order_ids)
 
-        orders = self.get_queryset().filter(id__in=order_ids)
-        updated_count = orders.update(order_status=new_status)
+        field_name = "order_status" 
 
-        return Response({"updated_count": updated_count}, status=status.HTTP_200_OK)
+        if getattr(user, "role", None) == UserRole.ADMIN.value:
+            updated_count = orders.update(**{field_name: new_status})
+            return Response(
+                {"detail": f"Admin updated status of {updated_count} orders to '{new_status}'."},
+                status=status.HTTP_200_OK,
+            )
+
+        elif getattr(user, "role", None) == UserRole.VENDOR.value:
+            vendor_orders = orders.filter(vendor=user)
+            updated_count = vendor_orders.update(**{field_name: new_status})
+            return Response(
+                {"detail": f"Vendor updated status of {updated_count} orders to '{new_status}'."},
+                status=status.HTTP_200_OK,
+            )
+
+        return Response(
+            {"detail": "Customers cannot perform bulk actions."},
+            status=status.HTTP_403_FORBIDDEN,
+        )

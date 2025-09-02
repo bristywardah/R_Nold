@@ -124,45 +124,6 @@ class SavedProduct(BaseModel):
         return self.name or f"Draft #{self.pk}"
 
 
-class Review(BaseModel):
-    product = models.ForeignKey(
-        "products.Product", 
-        on_delete=models.CASCADE,
-        related_name="reviews"
-    )
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="product_reviews")
-    rating = models.PositiveSmallIntegerField(
-        validators=[MinValueValidator(1), MaxValueValidator(5)]
-    )
-    comment = models.TextField(blank=True)
-
-    class Meta:
-        ordering = ["-created_at"]
-        unique_together = ("product", "user")
-        indexes = [models.Index(fields=["product", "user"])]
-
-    def __str__(self):
-        return f"Review by {getattr(self.user, 'email', self.user)} for {self.product.name}"
-
-
-class ReviewImage(BaseModel):
-    review = models.ForeignKey(
-        Review, 
-        on_delete=models.CASCADE, 
-        related_name="images"
-    )
-    image = models.ImageField(upload_to=upload_to)
-    alt_text = models.CharField(max_length=255, blank=True)
-    uploaded_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        ordering = ["-uploaded_at"]
-
-    def __str__(self):
-        return self.alt_text or f"Image {self.pk} for Review {self.review.pk}"
-
-
-
 
 
 class Banner(BaseModel):

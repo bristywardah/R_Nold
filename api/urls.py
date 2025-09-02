@@ -31,7 +31,7 @@ from products.views import (
     PromotionViewSet,
     VendorProductList,
     DeliveredOrderItemViewSet,
-    BulkProductsStatusUpdateViewSet
+    BulkProductsStatusUpdateViewSet,
 )
 
 # Common
@@ -40,7 +40,6 @@ from common.views import (
     TagViewSet,
     SEOViewSet,
     SavedProductViewSet,
-    ReviewViewSet,
     OrderManagementViewSet,
     BannerViewSet,
     WishlistViewSet,)
@@ -68,7 +67,7 @@ from orders.views import (
     CartViewSet,
     OrderReceiptView,
     OrderItemViewSet,
-    BulkOrderStatusUpdateView
+    BulkOrdersStatusUpdateViewSet
 )
 
 # Payments
@@ -85,6 +84,7 @@ from terms.views import (
     TermsConditionView,
 )
 
+from review.views import ReviewViewSet
 
 # -------- Router config --------
 router = DefaultRouter()
@@ -127,13 +127,17 @@ router.register("vendor/order/list", OrderManagementViewSet, basename="order-man
 router.register("order-items", OrderItemViewSet, basename="order-item")
 
 
-
 router.register("checkout", CheckoutViewSet, basename="checkout")
 router.register("payouts", PayoutRequestViewSet, basename="payout")
 router.register('wishlist', WishlistViewSet, basename='wishlist')
 router.register("admin/vendor-performance", VendorPerformanceViewSet, basename="vendor-performance")
 router.register('shipping-addresses', ShippingAddressViewSet, basename='shipping-address')
 
+
+router.register('bulk/products/status', BulkProductsStatusUpdateViewSet, basename='bulk-products-status')
+
+
+router.register('bulk/orders/status', BulkOrdersStatusUpdateViewSet, basename='bulk-orders-status')
 
 
 urlpatterns = [
@@ -143,14 +147,10 @@ urlpatterns = [
     path("seller/apply/", SellerApplicationView.as_view(), name="seller-application-create"),
     path("profile/", UserProfileView.as_view(), name="user-profile"),
     path("profile/update/", UserProfileUpdateView.as_view(), name="profile-update"),
-    # path("forgot-password/request/", ForgotPasswordRequestView.as_view(), name="forgot-password-request"),
-    # path("forgot-password/confirm/", ForgotPasswordVerifyView.as_view(), name="forgot-password-confirm"),
-    # path("forgot-password/reset/", ResetPasswordView.as_view(), name="reset-password"),
+
 
     path('change-password/', ChangePasswordView.as_view(), name='change-password'),
     path('set-new-password/', SetNewPasswordView.as_view(), name='set-new-password'),
-    # path('auth/send-verification-otp/', SendVerificationOTPView.as_view(), name='send-verification-otp'),
-    # path('auth/verify-account/', VerifyAccountOTPView.as_view(), name='verify-account'),
     path('send-reset-otp/', SendPasswordResetOTPView.as_view(), name='send-reset-otp'),
     path('verify-reset-otp/', VerifyPasswordResetOTPView.as_view(), name='verify-reset-otp'),
 
@@ -188,8 +188,8 @@ urlpatterns = [
     path("admin/bulk/seller-applications/status/", BulkSellerApplicationStatusUpdateView.as_view(), name="bulk-seller-application-status"),
     path("admin/bulk/users/activate/", BulkUserActivateView.as_view(), name="bulk-user-activate"),
     path("admin/bulk/users/delete/", BulkUserDeleteView.as_view(), name="bulk-user-delete"),
-    path("admin/bulk/products/status/", BulkProductsStatusUpdateViewSet.as_view({'post': 'update_status'}), name="bulk-product-status"),
-    path("admin/bulk/orders/status/", BulkOrderStatusUpdateView.as_view(), name="bulk-order-status"),
+    # path("bulk/products/status/", BulkProductsStatusUpdateViewSet.as_view({'post': 'update_status'}), name="bulk-product-status"),
+    # path("admin/bulk/orders/status/", BulkOrderStatusUpdateView.as_view(), name="bulk-order-status"),
     path("admin/bulk/payments/status/", BulkPaymentStatusUpdateView.as_view(), name="bulk-payment-status"),
 
 

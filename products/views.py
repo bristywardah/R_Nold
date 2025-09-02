@@ -8,7 +8,7 @@ from rest_framework import serializers
 from .models import Product, ProductImage
 from .serializers import ProductSerializer, ProductImageSerializer
 from products.enums import ProductStatus
-from products.permissions import BasePermission
+from products.permissions import BasePermission, IsVendorOrAdmin
 from common.models import SEO
 from products.serializers import ProductSerializer, ProductSpecificationsSerializer, ProductSpecifications
 from django.db.models import Sum
@@ -568,32 +568,74 @@ class DeliveredOrderItemViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 
-
-
-
 class BulkProductsStatusUpdateViewSet(viewsets.ViewSet):
-    permission_classes = [permissions.IsAuthenticated, IsVendorOrAdmin]
+    permission_classes = [permissions.IsAuthenticated]
+    http_method_names = ["get", "post"] 
 
-    @action(detail=False, methods=['post'])
+    def list(self, request):
+        return Response(
+            {
+                "detail": "Use POST /api/bulk/products/status/update-status/ "
+                          "or POST /api/bulk/products/status/delete/ for bulk actions."
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=False, methods=["post"], url_path="update-status")
     def bulk_update_status(self, request):
         user = request.user
-        product_ids = request.data.get('product_ids', [])
-        new_status = request.data.get('status')
+        product_ids = request.data.get("product_ids", [])
+        new_status = request.data.get("status")
 
-        if not product_ids or new_status not in ProductStatus.values():
+        if getattr(user, "role", None) != UserRole.ADMIN.value:
+            return Response(
+                {"detail": "Only admin can update product status."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        if not product_ids or new_status not in ProductStatus.values:
             return Response(
                 {"detail": "Invalid product IDs or status."},
-                status=status.HTTP_400_BAD_REQUEST
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         products = Product.objects.filter(id__in=product_ids)
-
-        if getattr(user, "role", None) == UserRole.VENDOR.value:
-            products = products.filter(vendor=user)
-
         updated_count = products.update(status=new_status)
 
         return Response(
             {"detail": f"Updated status of {updated_count} products to '{new_status}'."},
-            status=status.HTTP_200_OK
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=False, methods=["post"], url_path="delete")
+    def bulk_delete(self, request):
+        user = request.user
+        product_ids = request.data.get("product_ids", [])
+
+        if not product_ids:
+            return Response(
+                {"detail": "No product IDs provided."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        products = Product.objects.filter(id__in=product_ids)
+
+        if getattr(user, "role", None) == UserRole.ADMIN.value:
+            deleted_count, _ = products.delete()
+            return Response(
+                {"detail": f"Admin deleted {deleted_count} products."},
+                status=status.HTTP_200_OK,
+            )
+
+        elif getattr(user, "role", None) == UserRole.VENDOR.value:
+            vendor_products = products.filter(vendor=user)
+            deleted_count, _ = vendor_products.delete()
+            return Response(
+                {"detail": f"Vendor deleted {deleted_count} products."},
+                status=status.HTTP_200_OK,
+            )
+
+        return Response(
+            {"detail": "Customers cannot perform bulk actions."},
+            status=status.HTTP_403_FORBIDDEN,
         )

@@ -8,7 +8,6 @@ from payments.models import Payment
 from orders.models import Order
 from products.models import Product
 from django.db.models import Count, Avg, Sum
-from common.models import Review
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.contrib.auth.password_validation import validate_password
 
@@ -329,9 +328,6 @@ class VendorListSerializer(serializers.ModelSerializer):
     def get_orders_count(self, obj):
         return Order.objects.filter(vendor=obj).count()
 
-    def get_ratings(self, obj):
-        avg_rating = Review.objects.filter(product__vendor=obj).aggregate(avg=Avg("rating"))["avg"]
-        return round(avg_rating or 0, 2)
 
     def get_actions(self, obj):
         return {

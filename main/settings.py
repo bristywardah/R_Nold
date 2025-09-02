@@ -164,6 +164,7 @@ INSTALLED_APPS = [
     'terms',
     'chatapp',
     'notification',
+    'review',
 ]
 
 

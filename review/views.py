@@ -23,11 +23,13 @@ class ReviewViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
+        if getattr(self, 'swagger_fake_view', False):
+            return Review.objects.none()
         if user.is_staff or user.role == UserRole.ADMIN.value:
             return Review.objects.all()
         elif user.role == UserRole.VENDOR.value:
             return Review.objects.filter(product__vendor=user)
-        else:  # Customer
+        else:  
             return Review.objects.filter(user=user)
 
     def perform_create(self, serializer):

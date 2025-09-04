@@ -26,7 +26,6 @@ class Payment(BaseModel):
     )
 
 
-
     vendor = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -52,7 +51,7 @@ class Payment(BaseModel):
         choices=[(tag.value, tag.value) for tag in PaymentStatusEnum],
         default=PaymentStatusEnum.PENDING.value
     )
-
+    
     note = models.TextField(blank=True, null=True)
 
     class Meta:
